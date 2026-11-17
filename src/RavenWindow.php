@@ -96,7 +96,8 @@ class RavenWindow extends ToolkitWindow
             Rwindow_set_close_callback($this->rid, static fn (): int => ($self->get()?->userCloses() ?? true) ? R_TRUE : R_FALSE, null);
             // A burst of resizes within one pump is one WindowResized, with the last size.
             Rwindow_set_resize_callback($this->rid, static fn (int $window, int $width, int $height) => $self->get()?->resized($width, $height), null);
-            Rwindow_set_event_hook($this->rid, static function (int $window, REvent $event) use ($self): int {
+            Rwindow_set_event_hook($this->rid, static function (int $window, REvent $event) use ($self, $driver): int {
+                $driver->inputSeen($event);
                 if ($event->type === R_EVENT_FOCUS_GAINED && $event->target === 0) {
                     $self->get()?->activated();
                 }

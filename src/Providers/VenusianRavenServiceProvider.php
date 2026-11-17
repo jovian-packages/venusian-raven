@@ -2,9 +2,11 @@
 
 namespace Jovian\Toolkits\Raven\Providers;
 
+use Jovian\Toolkits\Raven\Input\RavenInputBackend;
 use Jovian\Toolkits\Raven\RavenBridge;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\NotFoundExceptionInterface;
+use Surface\HumanInput\HumanInput;
 use Surface\Toolkits\Toolkits;
 use Voyager\Contracts\Core\FrameworkCore;
 use Voyager\NutsAndBolts\ServiceProvider;
@@ -33,5 +35,10 @@ class VenusianRavenServiceProvider extends ServiceProvider
 
         $toolkits = $this->app->get('toolkit-bridge-manager');
         $toolkits->extend('raven', fn ($app): RavenBridge => new RavenBridge($app));
+
+        // the 'raven' input backend, when the application turned human input on
+        if (HumanInput::enabled()) {
+            HumanInput::manager()->extend('raven', fn (): RavenInputBackend => new RavenInputBackend());
+        }
     }
 }

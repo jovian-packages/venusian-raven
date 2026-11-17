@@ -5,10 +5,12 @@ namespace Jovian\Toolkits\Raven\Primitives;
 use Jovian\Toolkits\Raven\Contracts\Primitives\RavenNative;
 use Jovian\Toolkits\Raven\Primitives\Concerns\RavenPrimitive;
 use RPainter;
+use Surface\Contracts\HumanInput\HumanInputException;
 use Surface\Contracts\Toolkits\Primitives\Placement;
 use Surface\Contracts\Toolkits\ToolkitRuntimeException;
 use Surface\Contracts\Toolkits\ToolkitWindow;
 use Surface\Toolkits\Primitives\TKCanvas;
+use Surface\HumanInput\InputChannel;
 use Surface\Toolkits\Primitives\TKPrimitiveGroup;
 use WeakReference;
 
@@ -19,6 +21,9 @@ use WeakReference;
  *
  * It is not a Raven image: an image asks for its texture's size, so on a display of twice the
  * density each frame would ask for a widget twice as tall, and the canvas would grow without end.
+ *
+ * Once its input is open (input()), it takes the keyboard focus: a click or focus() gives it the
+ * keys. Until then Raven's Tab and clicks pass it by.
  *
  * It shows pixels and nothing more. Raven draws its widgets on its own renderer and lends no
  * surface (Metal layer, GL context or Vulkan surface) to a graphics engine.
@@ -45,6 +50,23 @@ class RavenCanvas extends TKCanvas implements RavenNative
                 Rdraw_image($painter, $texture, 0.0, 0.0, $width, $height, 1.0, 1.0, 1.0, 1.0);
             }
         }, null);
+    }
+
+    /**
+     * @throws HumanInputException When human input is off (config/human-input.php enabled).
+     */
+    public function input(): InputChannel
+    {
+        $input = parent::input();
+        Rwidget_set_focusable($this->control, R_TRUE);
+
+        return $input;
+    }
+
+    /** The Raven window this canvas is in. */
+    public function windowRid(): int
+    {
+        return $this->ravenWindow()->rid();
     }
 
     /** The window's scale: 2.0 on a display of twice the density. */

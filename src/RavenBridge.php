@@ -7,7 +7,9 @@ use Jovian\Toolkits\Raven\Services\RavenClipboard;
 use Jovian\Toolkits\Raven\Services\RavenDesktop;
 use Jovian\Toolkits\Raven\Services\RavenDialogs;
 use Jovian\Toolkits\Raven\Services\RavenSystemAccent;
+use Closure;
 use ReflectionException;
+use REvent;
 use Surface\Contracts\Toolkits\Drivers\ToolkitWindowDriver;
 use Surface\Contracts\Toolkits\Menus\MenuProfile as MenuProfileContract;
 use Surface\Contracts\Toolkits\Styling\FontMetrics;
@@ -35,6 +37,29 @@ class RavenBridge extends ToolkitBridge implements ToolkitWindowDriver
     protected ?RavenSystemAccent $systemAccent = null;
 
     protected string $session_class = RavenSession::class;
+
+    /** @var (Closure(REvent): void)|null sees every input event of every window, before its widgets */
+    protected ?Closure $input = null;
+
+    /**
+     * Who sees every input event of every Raven window (mouse, wheel, keys, text) before any
+     * widget: the 'raven' input backend. A window has one event hook, which the window itself
+     * holds; it passes each event here first. Null stops it.
+     *
+     * @param (Closure(REvent): void)|null $watcher
+     */
+    public function watchInput(?Closure $watcher): void
+    {
+        $this->input = $watcher;
+    }
+
+    /** @internal a window's event hook hands each event here */
+    public function inputSeen(REvent $event): void
+    {
+        if (! is_null($this->input)) {
+            ($this->input)($event);
+        }
+    }
 
     /**
      * @throws ReflectionException
