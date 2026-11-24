@@ -32,7 +32,12 @@
         "venusian-voyager/nuts-and-bolts": "^0.11.0"
     },
     "require-dev": {
-        "pestphp/pest": "^4"
+        "pestphp/pest": "^4",
+        "venusian/framework": "^0.11.0",
+        "venusian/topside": "^0.11.0"
+    },
+    "suggest": {
+        "ext-appkit": "On macOS, folds the event loop's descriptor into Cocoa's run loop, where Raven waits: a loop wake ends Raven's wait at once instead of within raven.wait_slice_ms."
     },
     "autoload": {
         "psr-4": {

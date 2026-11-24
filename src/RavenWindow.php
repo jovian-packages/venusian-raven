@@ -2,550 +2,384 @@
 
 namespace Jovian\Toolkits\Raven;
 
-use Jovian\Toolkits\Raven\Contracts\Primitives\RavenNative;
-use Jovian\Toolkits\Raven\Primitives\RavenPrimitiveFactory;
-use Jovian\Toolkits\Raven\Windows\RavenContextMenu;
-use Jovian\Toolkits\Raven\Windows\RavenMenuBar;
+use Closure;
 use REvent;
-use Surface\Contracts\Toolkits\Mail\Views\FocusGained;
-use Surface\Contracts\Toolkits\Mail\Views\FocusLost;
-use Surface\Contracts\Toolkits\Mail\Views\RightClicked;
-use Surface\Contracts\Toolkits\Mail\Windows\WindowClosed;
-use Surface\Contracts\Toolkits\Mail\Windows\WindowCloseRequested;
+use RuntimeException;
 use Surface\Contracts\Toolkits\Mail\Windows\WindowFocused;
-use Surface\Contracts\Toolkits\Mail\Windows\WindowResized;
-use Surface\Contracts\Toolkits\Mail\Windows\WindowRightClicked;
 use Surface\Contracts\Toolkits\Mail\Windows\WindowScaleChanged;
-use Surface\Contracts\Toolkits\Menus\MenuProfile;
-use Surface\Contracts\Toolkits\Primitives\PrimitiveFactory;
-use Surface\Contracts\Toolkits\Primitives\TKPrimitive;
-use Surface\Contracts\Toolkits\Primitives\TKPrimitiveGroup;
-use Surface\Contracts\Toolkits\ToolkitRuntimeException;
-use Surface\Contracts\Toolkits\ToolkitWindow as WindowContract;
-use Surface\Toolkits\Menus\ContextMenu;
-use Surface\Toolkits\Menus\MenuProfile as ParsedMenuProfile;
-use Surface\Toolkits\Windows\ChildWindows;
-use Surface\Toolkits\Windows\ToolkitWindow;
+use Surface\Toolkits\ToolkitWindow;
+use Surface\Contracts\Toolkits\UI\TKColumn as ColumnContract;
 use WeakReference;
 
 /**
- * A top-level window is a Raven window (Rwindow_create, hidden until present()). Its content
- * widget is a vertical box holding the menu bar, when it has one, and the content container. A
- * child window (open() with a parent) is a Raven dialog inside the parent window: Raven dialogs
- * are modal to their window, and a child has no menu bar.
+ * A Raven window (Rwindow_create, hidden until present()). Its content widget is a vertical box
+ * the content container goes in. A child is a window its parent owns: it stays above the parent,
+ * goes with it, and while it is open the parent takes no input (Raven has no modal window; the
+ * parent's event hook keeps its input, and a press on it brings the child forward).
  */
 class RavenWindow extends ToolkitWindow
 {
-    /** The Raven window; for a child, the parent's. 0 once closed. */
-    protected int $rid;
+    /** The scale last posted (pixels per logical unit), or read at the first show. */
+    private float $scale = 1.0;
 
-    /** The box the content container goes in: the window's content widget, or the child's dialog content. */
-    protected int $host;
+    /** Before the first show the window is on no screen of its own: a scale change then is not the user's. */
+    private bool $shown_once = false;
 
-    protected ?PrimitiveFactory $factory = null;
+    /** Whether the window was the active one at the last settle. */
+    private bool $active = false;
 
-    /** @var WeakReference<TKPrimitive>|null focused on each present() */
-    protected ?WeakReference $initial_focus = null;
+    /**
+     * The Raven window while open; null once closed. Raven destroys it after the close callback
+     * lets it go, and destroys the windows it owns with it.
+     */
+    protected ?int $window = null;
 
-    protected bool $confirming = false;
+    /**
+     * Vertical box filling the window: where the content container goes.
+     */
+    protected int $content = 0;
 
-    /** close() runs: the close goes through while the window confirms close. */
-    protected bool $closing = false;
+    /**
+     * Open children, held weakly: the driver holds the windows.
+     *
+     * @var array<int, WeakReference<RavenWindow>>
+     */
+    protected array $children = [];
 
-    protected bool $presented = false;
-
-    /** The scale last posted. */
-    protected float $scale = 1.0;
-
-    /** The focused widget's Rid as last seen, for FocusGained/FocusLost. */
-    protected int $focus_rid = 0;
-
-    /** Primitives by their native Rid, for focus lookups. @var array<int, WeakReference<TKPrimitive>> */
-    protected array $by_rid = [];
-
-    protected ?RavenMenuBar $menu_bar = null;
-
-    /** The menu a right-click opened from a primitive's stored context menu. */
-    protected ?RavenContextMenu $right_menu = null;
+    /**
+     * Who sees this window's input before its widgets, by key: Raven has one hook per window.
+     *
+     * @var array<string, Closure(REvent): bool>
+     */
+    private array $input_watchers = [];
 
     public function __construct(
-        protected readonly string $name,
-        protected readonly RavenSession $session,
-        protected readonly RavenBridge $driver,
+        string $name,
+        RavenSession $session,
+        RavenAdapterDriver $driver,
         int $width,
         int $height,
-        ?MenuProfile $menu,
-        protected readonly ?WindowContract $parent = null,
+        ?RavenWindow $parent = null,
     ) {
-        $this->host = Rwidget_create(R_WIDGET_VBOX);
-        $self = WeakReference::create($this);
+        parent::__construct($name, $session, $driver, $width, $height, $parent);
+    }
 
-        if ($parent instanceof self) {
-            $this->rid = $parent->rid();
-            Rwidget_set_min_size($this->host, $width, $height);
-        } else {
-            $this->rid = Rwindow_create($name, $width, $height, R_WINDOW_HIDDEN);
-            if (Rwindow_is_valid($this->rid) !== R_TRUE) {
-                Rerror_get_last($detail, $severity);
-                throw new ToolkitRuntimeException("Raven did not open window '{$name}': ".($detail ?: 'Rwindow_create failed').'.');
-            }
-            Rwindow_set_content($this->rid, $this->host);
-            $this->scale = Rwindow_get_scale($this->rid);
-
-            // The user's close: refused while a child or dialog is open, asked about while confirming.
-            Rwindow_set_close_callback($this->rid, static fn (): int => ($self->get()?->userCloses() ?? true) ? R_TRUE : R_FALSE, null);
-            // A burst of resizes within one pump is one WindowResized, with the last size.
-            Rwindow_set_resize_callback($this->rid, static fn (int $window, int $width, int $height) => $self->get()?->resized($width, $height), null);
-            Rwindow_set_event_hook($this->rid, static function (int $window, REvent $event) use ($self, $driver): int {
-                $driver->inputSeen($event);
-                if ($event->type === R_EVENT_FOCUS_GAINED && $event->target === 0) {
-                    $self->get()?->activated();
-                }
-                if ($event->type === R_EVENT_MOUSE_DOWN && $event->button === R_MOUSE_RIGHT) {
-                    return ($self->get()?->rightClicked($event) ?? false) ? R_TRUE : R_FALSE;
-                }
-
-                return R_FALSE;
-            }, null);
-            if (! is_null($menu)) {
-                $this->installMenuBar($menu);
-            }
+    /** A child presents its parent first when the parent is not shown. */
+    public function present(): static
+    {
+        $window = $this->live();
+        if ($this->parent instanceof self && ! $this->parent->shown_once) {
+            $this->parent->present();
         }
 
-        $session->afterPump("window.{$name}", static fn () => $self->get()?->afterPump());
-    }
+        // Shows the window in front with the keyboard and makes the application the active one.
+        Rwindow_focus($window);
 
-    public function name(): string
-    {
-        return $this->name;
-    }
+        if (! $this->shown_once) {
+            $this->shown_once = true;
+            $this->scale = Rwindow_get_scale($window);
+        }
 
-    /** The Raven window this window draws in (the parent's for a child). */
-    public function rid(): int
-    {
-        return $this->rid ?: throw new ToolkitRuntimeException("Window '{$this->name}' is closed.");
-    }
+        $this->focusInitial();
 
-    public function title(): string
-    {
-        return $this->isChild() ? $this->name : (string) Rwindow_get_title($this->rid());
+        return $this;
     }
 
     public function setTitle(string $title): static
     {
-        if (! $this->isChild()) {
-            Rwindow_set_title($this->rid(), $title);
-        }
+        Rwindow_set_title($this->live(), $title);
 
         return $this;
     }
 
-    /** A child presents its parent first, then opens as a dialog over it. */
-    public function present(): static
+    /**
+     * The Raven window's Rid, for engines that draw into it.
+     *
+     * @throws RuntimeException Once closed.
+     */
+    public function native(): int
     {
-        $this->rid();
-        if ($this->isChild()) {
-            if (! $this->parent->presented) {
-                $this->parent->present();
-            }
-            if (! $this->presented) {
-                $self = WeakReference::create($this);
-                Rdialog_open($this->rid, $this->host, static fn () => $self->get()?->dialogClosed(), null);
-            }
-        } else {
-            Rwindow_show($this->rid);
-        }
-        $this->presented = true;
-
-        $initial = $this->initial_focus?->get();
-        if (! is_null($initial) && ! $initial->isRemoved() && $initial instanceof RavenNative) {
-            Rwidget_focus($initial->focusRid());
-            $this->focus_rid = Rwindow_get_focused_widget($this->rid);
-        }
-
-        return $this;
+        return $this->live();
     }
 
     public function isOpen(): bool
     {
-        return $this->rid !== 0;
-    }
-
-    public function isChild(): bool
-    {
-        return $this->parent instanceof self;
-    }
-
-    public function close(): void
-    {
-        if ($this->rid === 0) {
-            return;
-        }
-        ChildWindows::childOf($this->driver, $this)?->close();
-        $this->driver->dialogs()->closeOn($this);
-        $this->closing = true;
-        $rid = $this->rid;
-        $host = $this->host;
-        $this->closed();
-        if ($this->isChild()) {
-            if (Rwidget_is_valid($host) === R_TRUE && $this->presented) {
-                Rdialog_close($host, -1);
-            } elseif (Rwidget_is_valid($host) === R_TRUE) {
-                Rwidget_destroy($host);
-            }
-        } else {
-            Rwindow_destroy($rid);
-        }
-        $this->closing = false;
-    }
-
-    public function parent(): ?WindowContract
-    {
-        return $this->parent;
-    }
-
-    public function confirmClose(bool $on = true): static
-    {
-        $this->confirming = $on;
-
-        return $this;
-    }
-
-    public function isConfirmingClose(): bool
-    {
-        return $this->confirming;
-    }
-
-    /** The primitive holding the window's focus: the one whose native holds Raven's focused widget. */
-    public function focused(): ?TKPrimitive
-    {
-        if ($this->rid === 0) {
-            return null;
-        }
-
-        return $this->primitiveAt(Rwindow_get_focused_widget($this->rid));
+        return ! is_null($this->window);
     }
 
     /**
-     * @throws ToolkitRuntimeException When $primitive belongs to another window.
+     * The box the content container goes in.
+     *
+     * @throws RuntimeException Once closed.
      */
-    public function setInitialFocus(?TKPrimitive $primitive): static
+    public function contentArea(): int
     {
-        if (! is_null($primitive) && $primitive->window() !== $this) {
-            throw new ToolkitRuntimeException("'{$primitive->path()}' is not in window '{$this->name}'.");
+        $this->live();
+
+        return $this->content;
+    }
+
+    /**
+     * The client area in logical units: what the content container is laid out in.
+     *
+     * @return array{int, int}
+     * @throws RuntimeException Once closed.
+     */
+    public function size(): array
+    {
+        Rwindow_get_size($this->live(), $width, $height);
+
+        return [(int) $width, (int) $height];
+    }
+
+    /**
+     * See this window's input before its widgets, while nothing blocks it: $watcher answers
+     * true to keep an event from them. It should hold its primitive weakly.
+     *
+     * @internal For this adapter's primitives.
+     * @param Closure(REvent): bool $watcher
+     */
+    public function watchInput(string $key, Closure $watcher): void
+    {
+        $this->input_watchers[$key] = $watcher;
+    }
+
+    /**
+     * @internal For this adapter's primitives.
+     */
+    public function unwatchInput(string $key): void
+    {
+        unset($this->input_watchers[$key]);
+    }
+
+    /**
+     * Whether this window is the one the user is working in.
+     */
+    public function isActive(): bool
+    {
+        return ! is_null($this->window) && Rwindow_is_active($this->window) === R_TRUE;
+    }
+
+    /**
+     * End of a pump: Raven reports neither activation nor a scale change, so both are compared.
+     * Activation posts WindowFocused once per activation, from the first show on.
+     */
+    public function settle(): void
+    {
+        if (is_null($this->window) || ! $this->shown_once) {
+            return;
         }
-        $this->initial_focus = is_null($primitive) ? null : WeakReference::create($primitive);
 
-        return $this;
+        $active = $this->isActive();
+        if ($active && ! $this->active) {
+            // Raven shows the active window's bar itself; this tells topside whose bar answers.
+            $this->gainedFocus();
+            $this->session->post(new WindowFocused($this->name));
+        }
+        if (! $active && $this->active) {
+            $this->lostFocus();
+        }
+        $this->active = $active;
+
+        $this->scaleChanged();
     }
 
-    /** A primitive's native, for focus lookups. */
-    public function adopt(int $rid, TKPrimitive $primitive): void
+    /** WindowScaleChanged when the scale differs from the last posted. */
+    public function scaleChanged(): void
     {
-        $this->by_rid[$rid] = WeakReference::create($primitive);
+        if (is_null($this->window)) {
+            return;
+        }
+
+        $scale = Rwindow_get_scale($this->window);
+        if ($scale === $this->scale) {
+            return;
+        }
+        $this->scale = $scale;
+        if ($this->shown_once) {
+            $this->session->post(new WindowScaleChanged($this->name, $scale));
+        }
     }
 
-    public function release(int $rid): void
+    protected function bootstrapWindow(int $width, int $height): void
     {
-        unset($this->by_rid[$rid]);
+        $window = Rwindow_create($this->name, $width, $height, R_WINDOW_HIDDEN);
+        if (Rwindow_is_valid($window) !== R_TRUE) {
+            Rerror_get_last($detail, $severity);
+            throw new RuntimeException("Raven did not open window '{$this->name}': ".($detail ?: 'Rwindow_create failed').'.');
+        }
+        $this->window = $window;
+
+        // The window takes ownership of its content: destroyed with it.
+        $this->content = Rwidget_create(R_WIDGET_VBOX);
+        Rwindow_set_content($window, $this->content);
+
+        if ($this->parent instanceof self) {
+            Rwindow_set_owner($window, $this->parent->native());
+            $this->parent->adoptChild($this);
+        }
+        Rwindow_center($window);
+
+        // The callbacks hold this window weakly: a strong capture would be a cycle through
+        // ext-raven's held slots that PHP's collector cannot see, keeping every closed window alive.
+        $self = WeakReference::create($this);
+
+        // R_TRUE lets Raven destroy the window; the mail goes first. While the window confirms
+        // close, the user's request posts WindowCloseRequested and R_FALSE keeps the window.
+        Rwindow_set_close_callback($window, static fn (): int => ($self->get()?->closeRequested() ?? true) ? R_TRUE : R_FALSE, null);
+
+        // A burst of resizes within one pump is one WindowResized, with the last size.
+        Rwindow_set_resize_callback($window, static function (int $window, int $width, int $height) use ($self): void {
+            $self->get()?->resized($width, $height);
+        }, null);
+
+        // Raven has one hook per window: a child's hold on the parent's input, then the watchers.
+        // R_TRUE keeps the event from the widgets.
+        Rwindow_set_event_hook($window, static fn (int $window, REvent $event): int => ($self->get()?->takesEvent($event) ?? false) ? R_TRUE : R_FALSE, null);
+
+        $this->scale = Rwindow_get_scale($window);
+
+        // Not ported yet (deprecated2/RavenWindow): the right-click and focus
+        // tracking, and the content floor (holdContent).
     }
 
-    /** The primitive whose widget is $rid or holds it. */
-    public function primitiveAt(int $rid): ?TKPrimitive
+    /**
+     * The menu bar goes first in the window's box: Raven gives the first MenuBar of a window to
+     * the macOS system bar, and draws it above the content elsewhere.
+     */
+    public function attachMenuBar(int $bar): void
     {
-        for ($at = $rid; $at !== 0 && $at !== R_INVALID_ID; $at = Rwidget_get_parent($at)) {
-            $primitive = ($this->by_rid[$at] ?? null)?->get();
-            if (! is_null($primitive) && ! $primitive->isRemoved()) {
-                return $primitive;
+        Rwidget_insert_child($this->content, $bar, 0);
+    }
+
+    /**
+     * The content container fills the window's box: its slot takes all the box's height
+     * (fill 1) and, as every slot starts, its whole width.
+     */
+    protected function mountContent(ColumnContract $content): void
+    {
+        $native = $content->native();
+        Rwidget_add_child($this->content, $native);
+        Rslot_set_fill($native, 1.0);
+    }
+
+    /**
+     * Out of the window's box; the container destroys its native right after. Nothing to take
+     * out once Raven destroyed the window and its widgets.
+     */
+    protected function unmountContent(ColumnContract $content): void
+    {
+        $native = $content->native();
+        if (Rwidget_is_valid($this->content) === R_TRUE && Rwidget_is_valid($native) === R_TRUE && Rwidget_get_parent($native) === $this->content) {
+            Rwidget_remove_child($this->content, $native);
+        }
+    }
+
+    /**
+     * The window's close callback: true lets Raven destroy the window, false keeps it.
+     */
+    protected function closeRequested(): bool
+    {
+        if (! $this->allowsUserClose()) {
+            return false;
+        }
+        $this->closed();
+
+        return true;
+    }
+
+    /**
+     * Raven's close runs the close callback, which takes the close path.
+     */
+    protected function closeNative(): void
+    {
+        Rwindow_close($this->live());
+    }
+
+    protected function resized(int $width, int $height): void
+    {
+        parent::resized($width, $height);
+        $this->scaleChanged();
+    }
+
+    protected function takesEvent(REvent $event): bool
+    {
+        if ($this->blocksInput($event)) {
+            return true;
+        }
+        foreach ($this->input_watchers as $watcher) {
+            if ($watcher($event)) {
+                return true;
             }
+        }
+
+        return false;
+    }
+
+    /**
+     * An input event of this window while a child is open: kept from the widgets, and a press
+     * brings the child forward.
+     */
+    protected function blocksInput(REvent $event): bool
+    {
+        $child = $this->openChild();
+        if (is_null($child)) {
+            return false;
+        }
+        if ($event->type === R_EVENT_MOUSE_DOWN) {
+            Rwindow_focus($child->native());
+        }
+
+        return true;
+    }
+
+    protected function openChild(): ?self
+    {
+        foreach ($this->children as $id => $child) {
+            $window = $child->get();
+            if (! is_null($window) && ! is_null($window->window)) {
+                return $window;
+            }
+            unset($this->children[$id]);
         }
 
         return null;
     }
 
-    /** A child has no menu bar; a window's new bar replaces its old one. */
-    public function setMenuBar(string $profile): static
+    protected function adoptChild(self $child): void
     {
-        $this->rid();
-        ChildWindows::refuseMenuBar($this);
-        $this->installMenuBar($this->driver->profile($profile));
-
-        return $this;
+        $this->children[spl_object_id($child)] = WeakReference::create($child);
     }
 
-    public function setToggle(string $item, bool $on): static
+    protected function releaseChild(self $child): void
     {
-        $this->menuOrFail()->setToggle($item, $on);
-
-        return $this;
+        unset($this->children[spl_object_id($child)]);
     }
 
-    public function isToggled(string $item): bool
+    protected function live(): int
     {
-        return $this->menuOrFail()->isToggled($item);
-    }
-
-    public function setItemEnabled(string $item, bool $enabled): static
-    {
-        $this->menuOrFail()->setItemEnabled($item, $enabled);
-
-        return $this;
-    }
-
-    public function isItemEnabled(string $item): bool
-    {
-        return $this->menuOrFail()->isItemEnabled($item);
-    }
-
-    public function setRadio(string $group, string $item): static
-    {
-        $this->menuOrFail()->setRadio($group, $item);
-
-        return $this;
-    }
-
-    public function radio(string $group): string
-    {
-        return $this->menuOrFail()->radio($group);
-    }
-
-    public function setItemLabel(string $item, string $label): static
-    {
-        $this->menuOrFail()->setItemLabel($item, $label);
-
-        return $this;
-    }
-
-    public function itemLabel(string $item): string
-    {
-        return $this->menuOrFail()->itemLabel($item);
-    }
-
-    public function menuBar(): ?RavenMenuBar
-    {
-        return $this->menu_bar;
-    }
-
-    /** The bar goes first in the host box, above the content. */
-    protected function installMenuBar(MenuProfile $profile): void
-    {
-        if (! $profile instanceof ParsedMenuProfile) {
-            throw new ToolkitRuntimeException(get_class($profile).' is not a menu profile parsed by Surface\\Toolkits\\Menus\\MenuProfile.');
-        }
-        $old = $this->menu_bar;
-        $this->menu_bar = new RavenMenuBar($this->session, $profile, $this->name, $this->rid, $this->driver->about());
-        Rwidget_insert_child($this->host, $this->menu_bar->widget(), 0);
-        Rslot_set_halign($this->menu_bar->widget(), R_HALIGN_FILL);
-        if (! is_null($old) && Rwidget_is_valid($old->widget()) === R_TRUE) {
-            Rwidget_destroy($old->widget());
-        }
-    }
-
-    protected function menuOrFail(): RavenMenuBar
-    {
-        return $this->menu_bar ?? throw new ToolkitRuntimeException("Window '{$this->name}' has no menu bar.");
-    }
-
-    /** Shown on screen: presented and not closed. */
-    public function isShown(): bool
-    {
-        return $this->rid !== 0 && $this->presented;
+        return $this->window ?? throw new RuntimeException("Raven Window '{$this->name}' is closed.");
     }
 
     /**
-     * A right press: the innermost primitive under it gets RightClicked and opens its stored
-     * context menu, if it has one; outside every primitive the window gets WindowRightClicked.
-     * @return bool whether the press is consumed (a menu opened)
+     * Raven destroys the windows a window owns with it, without asking them: the children
+     * take their close path first.
      */
-    public function rightClicked(REvent $event): bool
+    protected function beforeClose(): void
     {
-        $primitive = $this->primitiveAt($event->target);
-        if (is_null($primitive)) {
-            $this->session->post(new WindowRightClicked($this->name, $event->x, $event->y));
-
-            return false;
+        foreach ($this->children as $child) {
+            $child->get()?->closed();
         }
-        Rwidget_get_rect($primitive->native(), $left, $top, $width, $height);
-        $x = $event->x - $left;
-        $y = $event->y - $top;
-        $this->session->post(new RightClicked($this->name, $primitive->path(), $primitive->uuid(), $x, $y));
-        $menu = $primitive->contextMenu();
-        if (! $menu instanceof ContextMenu) {
-            return false;
-        }
-        $this->right_menu?->close();
-        $this->right_menu = new RavenContextMenu($menu, $this, $primitive);
-        $this->right_menu->openAt($event->x, $event->y);
-
-        return true;
+        $this->children = [];
     }
 
-    /** The content area's size: the window's client size, or the child dialog content's. */
-    public function size(): array
+    protected function releaseNative(): void
     {
-        $this->rid();
-        Rwidget_get_rect($this->host, $x, $y, $width, $height);
-
-        return [(int) round($width), (int) round($height)];
-    }
-
-    /** The box the content container sits in. */
-    public function host(): int
-    {
-        return $this->host;
-    }
-
-    public function factory(): PrimitiveFactory
-    {
-        return $this->factory ??= new RavenPrimitiveFactory($this);
-    }
-
-    public function session(): RavenSession
-    {
-        return $this->session;
-    }
-
-    /** Re-apply the content container's fill and align inside the host. */
-    public function placeContent(TKPrimitiveGroup&RavenNative $content): void
-    {
-        [$horizontal, $vertical] = $content->fills();
-        [$halign, $valign] = $content->ravenAlign();
-        Rslot_set_halign($content->native(), $horizontal ? R_HALIGN_FILL : $halign);
-        Rslot_set_valign($content->native(), $vertical ? R_VALIGN_FILL : $valign);
-        if ($vertical || $valign === R_VALIGN_FILL) {
-            Rslot_set_fill($content->native(), 1.0);
-        } else {
-            Rslot_set_auto($content->native());
+        if ($this->parent instanceof self) {
+            $this->parent->releaseChild($this);
         }
-    }
-
-    /**
-     * @throws ToolkitRuntimeException When the container is not a raven primitive.
-     */
-    protected function mountContent(TKPrimitiveGroup $content): void
-    {
-        if (! $content instanceof RavenNative) {
-            throw new ToolkitRuntimeException("'{$content->path()}' is not a raven primitive.");
-        }
-        Rwidget_add_child($this->host, $content->native());
-        $this->placeContent($content);
-    }
-
-    /**
-     * The user closed the window. A parent with an open child or dialog keeps it silently; a
-     * confirming window posts WindowCloseRequested and stays.
-     * @return bool whether Raven may close it
-     */
-    public function userCloses(): bool
-    {
-        if (! $this->closing && (! is_null(ChildWindows::childOf($this->driver, $this)) || ! is_null($this->driver->dialogs()->openOn($this)))) {
-            return false;
-        }
-        if ($this->confirming && ! $this->closing) {
-            $this->session->post(new WindowCloseRequested($this->name));
-
-            return false;
-        }
-        $this->closed();
-
-        return true;
-    }
-
-    /** A child's dialog closed from Raven's side (Escape): the window's close path. */
-    public function dialogClosed(): void
-    {
-        if ($this->rid === 0 || $this->closing) {
-            return;
-        }
-        if ($this->confirming) {
-            // Raven has already closed the dialog and deleted its content: the window cannot stay.
-            $this->session->post(new WindowCloseRequested($this->name));
-        }
-        $this->closed();
-    }
-
-    public function resized(int $width, int $height): void
-    {
-        $this->session->postLatest("window.resized.{$this->name}", new WindowResized($this->name, $width, $height));
-        $scale = Rwindow_get_scale($this->rid);
-        if ($scale !== $this->scale) {
-            $this->scale = $scale;
-            if ($this->presented) {
-                $this->session->post(new WindowScaleChanged($this->name, $scale));
-            }
-        }
-    }
-
-    public function activated(): void
-    {
-        $this->driver->clipboard()->compare();
-        $this->session->post(new WindowFocused($this->name));
-    }
-
-    /** Raven reports no focus change: the focused widget is compared after each pump. */
-    public function afterPump(): void
-    {
-        if ($this->rid === 0 || $this->isChild()) {
-            return;
-        }
-        $this->holdContent();
-        $rid = Rwindow_get_focused_widget($this->rid);
-        if ($rid === $this->focus_rid) {
-            return;
-        }
-        $before = $this->primitiveAt($this->focus_rid);
-        $after = $this->primitiveAt($rid);
-        $this->focus_rid = $rid;
-        if ($before === $after) {
-            return;
-        }
-        if (! is_null($before)) {
-            $this->session->post(new FocusLost($this->name, $before->path(), $before->uuid()));
-        }
-        if (! is_null($after)) {
-            $this->session->post(new FocusGained($this->name, $after->path(), $after->uuid()));
-        }
-    }
-
-    /** The content's size as last held: the window's floor, in points. */
-    protected array $held = [0, 0];
-
-    /**
-     * A window is never smaller than what it holds, as AppKit's, GTK's and Qt's are not: Raven
-     * draws content that does not fit over itself. Its floor follows the content's size, and a
-     * window already smaller grows to it.
-     */
-    protected function holdContent(): void
-    {
-        Rwidget_get_desired_size($this->host, $width, $height);
-        $floor = [(int) ceil($width ?? 0.0), (int) ceil($height ?? 0.0)];
-        if ($floor === $this->held) {
-            return;
-        }
-        $this->held = $floor;
-        Rwindow_set_min_size($this->rid, ...$floor);
-        Rwindow_get_size($this->rid, $w, $h);
-        if ($w < $floor[0] || $h < $floor[1]) {
-            Rwindow_set_size($this->rid, max($w, $floor[0]), max($h, $floor[1]));
-        }
-    }
-
-    /**
-     * The one close path: tear the content tree down while the native window still holds it,
-     * drop the window's pending mail, post the close, let the driver forget the window.
-     */
-    protected function closed(): void
-    {
-        if ($this->rid === 0) {
-            return;
-        }
-        $this->removeContent();
-        $this->right_menu?->close();
-        $this->right_menu = null;
-        $this->rid = 0;
-        $this->session->afterPump("window.{$this->name}", null);
-        $this->session->forgetLatest("window.resized.{$this->name}");
-        $this->session->post(new WindowClosed($this->name));
-        $this->driver->forget($this->name);
+        $this->window = null;
+        $this->active = false;
+        $this->input_watchers = [];
     }
 }

@@ -2,43 +2,14 @@
 
 namespace Jovian\Toolkits\Raven\Providers;
 
-use Jovian\Toolkits\Raven\Input\RavenInputBackend;
-use Jovian\Toolkits\Raven\RavenBridge;
-use Psr\Container\ContainerExceptionInterface;
-use Psr\Container\NotFoundExceptionInterface;
-use Surface\HumanInput\HumanInput;
-use Surface\Toolkits\Toolkits;
-use Voyager\Contracts\Core\FrameworkCore;
-use Voyager\NutsAndBolts\ServiceProvider;
+use Jovian\Toolkits\Raven\RavenAdapterDriver;
+use Surface\Toolkits\ToolkitAdapterServiceProvider;
 
-class VenusianRavenServiceProvider extends ServiceProvider
+class VenusianRavenServiceProvider extends ToolkitAdapterServiceProvider
 {
-    public function register(): void
-    {
-        $this->app->registerSingleton(RavenBridge::class, fn (FrameworkCore $app) => Toolkits::bridge('raven'));
-        $this->app->alias('raven-bridge', RavenBridge::class);
-    }
+    protected string $toolkit = 'raven';
 
-    /**
-     * Publishes and merges config/raven.php, then registers the toolkit's driver on the bridge:
-     * Surface names no toolkit.
-     *
-     * @return void
-     * @throws ContainerExceptionInterface
-     * @throws NotFoundExceptionInterface
-     */
-    public function boot(): void
-    {
-        $source = realpath($raw = __DIR__.'/../../config/raven.php') ?: $raw;
-        $this->publishes([$source => $this->app->configPath('raven.php')], 'raven-config');
-        $this->mergeConfigFrom($source, 'raven');
+    protected string $driver = RavenAdapterDriver::class;
 
-        $toolkits = $this->app->get('toolkit-bridge-manager');
-        $toolkits->extend('raven', fn ($app): RavenBridge => new RavenBridge($app));
-
-        // the 'raven' input backend, when the application turned human input on
-        if (HumanInput::enabled()) {
-            HumanInput::manager()->extend('raven', fn (): RavenInputBackend => new RavenInputBackend());
-        }
-    }
+    protected string $config = __DIR__.'/../../config/raven.php';
 }

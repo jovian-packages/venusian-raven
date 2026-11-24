@@ -4,6 +4,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Application Name
+    |--------------------------------------------------------------------------
+    |
+    | The name Raven starts with: the title of the macOS application menu.
+    |
+    */
+
+    'application_name' => env('APP_NAME', 'Venusian'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Wait Slice
+    |--------------------------------------------------------------------------
+    |
+    | Raven watches no descriptor of the event loop's. On macOS (with
+    | ext-appkit) the loop's descriptor joins Cocoa's run loop and wakes
+    | Raven at once. Elsewhere, and when headless, a pump waits in slices
+    | of at most this many milliseconds and checks the loop between them:
+    | the longest a loop wake waits for Raven.
+    |
+    */
+
+    'wait_slice_ms' => (float) env('RAVEN_WAIT_SLICE_MS', 8),
+
+    /*
+    |--------------------------------------------------------------------------
     | Rendering Backend
     |--------------------------------------------------------------------------
     |
