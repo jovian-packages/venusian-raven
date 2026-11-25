@@ -98,7 +98,7 @@ trait RavenItemView
         $this->item_widgets = array_values($this->item_widgets);
     }
 
-    /** The item's widget, dimmed when disabled, activated by a double click. */
+    /** The item's widget, dimmed when disabled, activated by a double click; it keeps its primary clicks. */
     protected function wired(object $item, int $index): int
     {
         $widget = $this->itemWidget($item, $index);
@@ -108,11 +108,15 @@ trait RavenItemView
         }
         $self = WeakReference::create($this);
         Rwidget_set_event_callback($widget, static function (int $widget, REvent $event) use ($self, $index): int {
-            if ($event->type === R_EVENT_MOUSE_DOWN && $event->button === R_MOUSE_LEFT && $event->clicks === 2) {
+            if ($event->button !== R_MOUSE_LEFT || ($event->type !== R_EVENT_MOUSE_DOWN && $event->type !== R_EVENT_MOUSE_UP)) {
+                return R_FALSE;
+            }
+            if ($event->type === R_EVENT_MOUSE_DOWN && $event->clicks === 2) {
                 $self->get()?->activated($index);
             }
 
-            return R_FALSE;
+            // The item's press and release are the view's: a clickable group round it does not hear them.
+            return R_TRUE;
         }, null);
 
         return $widget;

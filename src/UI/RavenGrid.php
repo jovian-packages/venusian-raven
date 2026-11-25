@@ -4,10 +4,11 @@ namespace Jovian\Toolkits\Raven\UI;
 
 use Surface\Toolkits\UI\TKGrid;
 use Surface\Toolkits\UI\TKPrimitive;
+use Surface\Contracts\Toolkits\UI\Insets;
 use Jovian\Toolkits\Raven\UI\Concerns\RavenNative;
 
 /**
- * A Raven grid in a border, whose padding is the grid's.
+ * A Raven grid in a border; the border's padding, each side its own, is the grid's.
  */
 class RavenGrid extends TKGrid
 {
@@ -22,7 +23,7 @@ class RavenGrid extends TKGrid
     {
         $this->adoptNative(Rwidget_create(R_WIDGET_GRID));
         Rpanel_set_spacing($this->control, $this->spacing());
-        Rborder_set_padding($this->native, $this->padding, $this->padding, $this->padding, $this->padding);
+        $this->applyPadding($this->padding());
     }
 
     protected function attachNative(TKPrimitive $child): void
@@ -51,6 +52,14 @@ class RavenGrid extends TKGrid
     protected function applySpacing(int $spacing): void
     {
         Rpanel_set_spacing($this->control, $spacing);
+    }
+
+    /**
+     * The border's padding, each side its own, inside the background.
+     */
+    protected function applyPadding(Insets $padding): void
+    {
+        Rborder_set_padding($this->native, $padding->left, $padding->top, $padding->right, $padding->bottom);
     }
 
     protected function childLayoutChanged(TKPrimitive $child): void

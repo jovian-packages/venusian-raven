@@ -49,6 +49,8 @@ use Surface\Contracts\Toolkits\UI\TKSplitView;
 use Jovian\Toolkits\Raven\UI\RavenSplitView;
 use Surface\Contracts\Toolkits\UI\TKGrid;
 use Jovian\Toolkits\Raven\UI\RavenGrid;
+use Surface\Contracts\Toolkits\UI\TKOverlay;
+use Jovian\Toolkits\Raven\UI\RavenOverlay;
 use Surface\Contracts\Toolkits\UI\TKSeparator;
 use Jovian\Toolkits\Raven\UI\RavenSeparator;
 use Surface\Contracts\Toolkits\UI\TKProgressBar;
@@ -94,6 +96,7 @@ class RavenAdapterDriver extends ToolkitAdapterDriver
         TKTabView::class => RavenTabView::class,
         TKSplitView::class => RavenSplitView::class,
         TKGrid::class => RavenGrid::class,
+        TKOverlay::class => RavenOverlay::class,
         TKTable::class => RavenTable::class,
         TKListView::class => RavenListView::class,
         TKCollectionView::class => RavenCollectionView::class,

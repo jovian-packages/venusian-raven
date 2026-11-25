@@ -16,6 +16,8 @@ class RavenToggleButton extends TKToggleButton
     use RavenButtonSurface, RavenNative {
         RavenButtonSurface::applyBackground insteadof RavenNative;
         RavenButtonSurface::applyCornerRadius insteadof RavenNative;
+        RavenButtonSurface::applyBorder insteadof RavenNative;
+        RavenButtonSurface::applyCorners insteadof RavenNative;
         releaseNative as private releaseWidget;
     }
 

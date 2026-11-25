@@ -104,6 +104,14 @@ class RavenComboBox extends TKComboBox
         }
     }
 
+    /**
+     * The field's text beam, which Raven gives it.
+     */
+    protected function ownCursor(): ?int
+    {
+        return R_CURSOR_IBEAM;
+    }
+
     protected function releaseNative(): void
     {
         $this->closeMenu();

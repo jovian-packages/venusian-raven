@@ -2,9 +2,15 @@
 
 namespace Jovian\Toolkits\Raven\UI\Concerns;
 
+use REvent;
 use RuntimeException;
+use WeakReference;
 use Surface\NutsAndBolts\Color;
+use Surface\Toolkits\UI\TKFixed;
 use Surface\Contracts\Toolkits\UI\Align;
+use Surface\Contracts\Toolkits\UI\Cursor;
+use Surface\Contracts\Toolkits\UI\Corners;
+use Surface\Contracts\Toolkits\UI\Insets;
 use Surface\Contracts\Toolkits\UI\TKTransition;
 
 /**
@@ -30,7 +36,28 @@ use Surface\Contracts\Toolkits\UI\TKTransition;
  * R_TRANSITION_FLY_UP / _DOWN (56 points, with a small scale and a bounce: Raven has no
  * vertical slide). Raven moves them with springs, so the seconds asked for have no Raven
  * equivalent and are not used. Raven has no disappear transition: hiding with one hides at
- * once.
+ * once. The MOVE transitions (in from an edge by the view's own size, no fade) are not
+ * shown: Raven has no public way to move a widget, no transition distance and no closing
+ * transition, and its slide is 28 points with a fade, which is not this transition. A view
+ * given one shows and hides at once.
+ *
+ * A clickable group hears primary clicks through an event callback on its native
+ * (Rwidget_set_event_callback). Raven sends a press and a release to the hit-testable widget
+ * under the pointer and bubbles them up through its parents, each seeing the point relative
+ * to itself; a label, picture or box lets the mouse through to the border round it, which
+ * passes it on, so what is passive inside the group reaches the group's border, and a
+ * button, field or other control keeps its own. A press there is the group's (consumed, so
+ * a clickable group above it does not take it as well) and the release that follows on it
+ * clicks. The window's input watcher forgets the press at the next one anywhere, so a press
+ * elsewhere and a release here click nothing.
+ *
+ * Margin is the native's slot padding (Rslot_set_padding): the space its parent keeps round
+ * it, outside its background. Raven's boxes, grid, scroll box, tab view, splitter and the
+ * window's box read it; a canvas (the fixed) places by frame and reads none, so a margin there
+ * is not shown. A border is the outline of the native's border (Rborder_set_outline), drawn
+ * on its edge. The pointer and the tooltip are the native's: Raven looks for them from the
+ * widget under the pointer up through its parents, so what is inside a container that has
+ * none of its own shows the container's.
  */
 trait RavenNative
 {
@@ -39,6 +66,12 @@ trait RavenNative
 
     /** What takes focus and input. 0 once removed. */
     protected int $control = 0;
+
+    /** Whether the native's event callback and the window's watcher hear clicks. */
+    private bool $hearing_clicks = false;
+
+    /** A clickable group's press on its native, waiting for the release. */
+    private bool $group_pressed = false;
 
     /**
      * The widget the parent holds.
@@ -95,6 +128,7 @@ trait RavenNative
      */
     protected function releaseNative(): void
     {
+        $this->stopHearingClicks();
         if ($this->native !== 0 && Rwidget_is_valid($this->native) === R_TRUE) {
             Rwidget_destroy($this->native);
         }
@@ -118,7 +152,78 @@ trait RavenNative
         }
 
         Rwidget_set_visibility($this->native, R_VISIBLE);
-        Rwidget_play_transition($this->native, is_null($transition) || $seconds <= 0.0 ? R_TRANSITION_NONE : self::ravenTransition($transition), 0.0);
+        Rwidget_play_transition($this->native, is_null($transition) || $seconds <= 0.0 ? R_TRANSITION_NONE : (self::ravenTransition($transition) ?? R_TRANSITION_NONE), 0.0);
+    }
+
+    /**
+     * A group's clicks: its native's event callback, and the window's watcher that forgets a
+     * press at the next one. Only groups call it (TKPrimitiveGroup::setClickable()).
+     */
+    protected function applyClickable(bool $on): void
+    {
+        if (! $on) {
+            $this->stopHearingClicks();
+
+            return;
+        }
+
+        $this->hearing_clicks = true;
+        $self = WeakReference::create($this);
+        Rwidget_set_event_callback($this->native, static function (int $widget, REvent $event) use ($self): int {
+            $group = $self->get();
+
+            return ! is_null($group) && ! $group->isRemoved() && $group->heardPress($event) ? R_TRUE : R_FALSE;
+        }, null);
+        $this->window()->watchInput("click:{$this->uuid()}", static function (REvent $event) use ($self): bool {
+            if ($event->type === R_EVENT_MOUSE_DOWN && ! is_null($group = $self->get())) {
+                $group->group_pressed = false;
+            }
+
+            return false;
+        });
+    }
+
+    /**
+     * A primary press on the native or on what is passive inside it is the group's; the
+     * release on it clicks, at the point from the group's top-left.
+     */
+    private function heardPress(REvent $event): bool
+    {
+        if ($event->button !== R_MOUSE_LEFT) {
+            return false;
+        }
+
+        if ($event->type === R_EVENT_MOUSE_DOWN) {
+            $this->group_pressed = true;
+
+            return true;
+        }
+
+        if ($event->type === R_EVENT_MOUSE_UP && $this->group_pressed) {
+            $this->group_pressed = false;
+            $this->groupClicked((float) $event->local_x, (float) $event->local_y);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * The callback goes first: ext-raven would otherwise hold it until it next sweeps.
+     */
+    private function stopHearingClicks(): void
+    {
+        $this->group_pressed = false;
+        if (! $this->hearing_clicks) {
+            return;
+        }
+
+        $this->hearing_clicks = false;
+        if ($this->native !== 0 && Rwidget_is_valid($this->native) === R_TRUE) {
+            Rwidget_set_event_callback($this->native, null, null);
+        }
+        $this->window()->unwatchInput("click:{$this->uuid()}");
     }
 
     /**
@@ -190,6 +295,23 @@ trait RavenNative
     }
 
     /**
+     * Each corner its own radius on the border: Rborder_set_corner_radius takes all four.
+     */
+    protected function applyCorners(Corners $corners): void
+    {
+        Rborder_set_corner_radius($this->native, $corners->topLeft, $corners->topRight, $corners->bottomRight, $corners->bottomLeft);
+    }
+
+    /**
+     * Raven clips a widget's descendants to its bounds, a rectangle (Rwidget_set_clipping): a
+     * corner radius does not round the clip, which Raven has no way to do.
+     */
+    protected function applyClip(bool $clip): void
+    {
+        Rwidget_set_clipping($this->native, $clip ? R_TRUE : R_FALSE);
+    }
+
+    /**
      * A column or row placed the slot already (childLayoutChanged); a fixed places its
      * children by frame. The content container takes its share of the window's vertical box:
      * all of its height when it fills vertically (mountContent() gives it that to start).
@@ -219,6 +341,86 @@ trait RavenNative
     protected function applyMinSize(int $width, int $height): void
     {
         Rwidget_set_min_size($this->native, $width, $height);
+    }
+
+    /**
+     * The native's slot padding, which the parent keeps round it. A canvas reads none.
+     */
+    protected function applyMargin(Insets $margin): void
+    {
+        if ($this->parent() instanceof TKFixed) {
+            return;
+        }
+
+        Rslot_set_padding($this->native, $margin->left, $margin->top, $margin->right, $margin->bottom);
+    }
+
+    /**
+     * On the native, and on a control that sets a pointer of its own (a field's text beam),
+     * which Raven would otherwise find first. Null gives each its own back. A shape Raven has
+     * no cursor for (GRAB, GRABBING) is not shown: Raven's own pointer stays.
+     */
+    protected function applyCursor(?Cursor $cursor): void
+    {
+        $shape = is_null($cursor) ? null : self::ravenCursor($cursor);
+        $own = $this->ownCursor();
+
+        Rwidget_set_cursor($this->native, $shape ?? 0);
+        if ($this->control !== $this->native && ! is_null($own)) {
+            Rwidget_set_cursor($this->control, $shape ?? $own);
+        }
+    }
+
+    /**
+     * The pointer Raven gives the control by itself, null when it gives none.
+     */
+    protected function ownCursor(): ?int
+    {
+        return null;
+    }
+
+    /**
+     * Raven shows the tooltip of the nearest widget under the pointer that has one.
+     */
+    protected function applyTooltip(?string $tooltip): void
+    {
+        Rwidget_set_tooltip($this->native, $tooltip);
+    }
+
+    /**
+     * The native border's outline, on its edge. A null colour is the theme's R_COLOR_BORDER as
+     * Raven resolves it for the border.
+     */
+    protected function applyBorder(int $width, ?Color $color): void
+    {
+        if (is_null($color)) {
+            Rwidget_get_color($this->native, R_COLOR_BORDER, $red, $green, $blue, $alpha);
+            Rborder_set_outline($this->native, $width, (float) $red, (float) $green, (float) $blue, (float) $alpha);
+
+            return;
+        }
+
+        Rborder_set_outline($this->native, $width, $color->red, $color->green, $color->blue, $color->alpha);
+    }
+
+    /**
+     * Raven's cursor for a shape; null where Raven has none.
+     */
+    protected static function ravenCursor(Cursor $cursor): ?int
+    {
+        return match ($cursor) {
+            Cursor::ARROW => R_CURSOR_ARROW,
+            Cursor::POINTER => R_CURSOR_HAND,
+            Cursor::TEXT => R_CURSOR_IBEAM,
+            Cursor::CROSSHAIR => R_CURSOR_CROSSHAIR,
+            Cursor::MOVE => R_CURSOR_MOVE,
+            Cursor::NOT_ALLOWED => R_CURSOR_NOT_ALLOWED,
+            Cursor::RESIZE_HORIZONTAL => R_CURSOR_RESIZE_H,
+            Cursor::RESIZE_VERTICAL => R_CURSOR_RESIZE_V,
+            Cursor::RESIZE_NWSE => R_CURSOR_RESIZE_NWSE,
+            Cursor::RESIZE_NESW => R_CURSOR_RESIZE_NESW,
+            Cursor::GRAB, Cursor::GRABBING => null,
+        };
     }
 
     /**
@@ -255,7 +457,10 @@ trait RavenNative
         });
     }
 
-    private static function ravenTransition(TKTransition $transition): int
+    /**
+     * Raven's appear transition for one; null for a move, which Raven cannot show.
+     */
+    private static function ravenTransition(TKTransition $transition): ?int
     {
         return match ($transition) {
             TKTransition::FADE => R_TRANSITION_FADE,
@@ -263,6 +468,7 @@ trait RavenNative
             TKTransition::SLIDE_RIGHT => R_TRANSITION_SLIDE_RIGHT,
             TKTransition::SLIDE_UP => R_TRANSITION_FLY_UP,
             TKTransition::SLIDE_DOWN => R_TRANSITION_FLY_DOWN,
+            TKTransition::MOVE_RIGHT, TKTransition::MOVE_LEFT, TKTransition::MOVE_TOP, TKTransition::MOVE_BOTTOM => null,
         };
     }
 }

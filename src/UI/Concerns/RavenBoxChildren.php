@@ -3,6 +3,7 @@
 namespace Jovian\Toolkits\Raven\UI\Concerns;
 
 use Surface\Toolkits\UI\TKPrimitive;
+use Surface\Contracts\Toolkits\UI\Insets;
 
 /**
  * What a Raven column and row share: a vertical or horizontal box (the control) inside a
@@ -24,7 +25,7 @@ trait RavenBoxChildren
     {
         $this->adoptNative(Rwidget_create($this->vertical() ? R_WIDGET_VBOX : R_WIDGET_HBOX));
         Rpanel_set_spacing($this->control, $this->spacing());
-        Rborder_set_padding($this->native, $this->padding, $this->padding, $this->padding, $this->padding);
+        $this->applyPadding($this->padding());
     }
 
     protected function attachNative(TKPrimitive $child): void
@@ -69,6 +70,14 @@ trait RavenBoxChildren
     protected function applySpacing(int $spacing): void
     {
         Rpanel_set_spacing($this->control, $spacing);
+    }
+
+    /**
+     * The border's padding, each side its own, inside the background.
+     */
+    protected function applyPadding(Insets $padding): void
+    {
+        Rborder_set_padding($this->native, $padding->left, $padding->top, $padding->right, $padding->bottom);
     }
 
     /**

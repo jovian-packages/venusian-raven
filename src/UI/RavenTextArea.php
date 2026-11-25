@@ -121,6 +121,14 @@ class RavenTextArea extends TKTextArea
         $this->refuse('reports no scroll offset');
     }
 
+    /**
+     * The editor's text beam, which Raven gives it.
+     */
+    protected function ownCursor(): ?int
+    {
+        return R_CURSOR_IBEAM;
+    }
+
     protected function releaseNative(): void
     {
         if ($this->control !== 0 && Rwidget_is_valid($this->control) === R_TRUE) {

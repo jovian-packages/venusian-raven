@@ -3,6 +3,7 @@
 namespace Jovian\Toolkits\Raven\UI;
 
 use WeakReference;
+use Surface\NutsAndBolts\Color;
 use Surface\Toolkits\UI\TKLink;
 use Surface\Contracts\Toolkits\Styling\FontSpec;
 use Surface\Contracts\Toolkits\Styling\TextAlignment;
@@ -11,7 +12,9 @@ use Jovian\Toolkits\Raven\UI\Concerns\RavenNative;
 
 /**
  * A Markdown label holding one link, the text escaped. Raven draws it as a link and calls
- * back on a click, which opens the URL with Ropen_url.
+ * back on a click, which opens the URL with Ropen_url. Its colour is the label's own
+ * R_COLOR_LINK, which Raven draws link runs in. Over the link Raven shows its pointing hand
+ * whatever cursor is set: the label sets it there itself.
  */
 class RavenLink extends TKLink
 {
@@ -57,6 +60,16 @@ class RavenLink extends TKLink
     {
         Rlabel_set_font($this->control, self::ravenFont($font));
         Rlabel_set_text_size($this->control, $font->size);
+    }
+
+    /**
+     * Null gives the theme's link colour back.
+     */
+    protected function applyTextColor(?Color $color): void
+    {
+        is_null($color)
+            ? Rwidget_clear_color($this->control, R_COLOR_LINK)
+            : Rwidget_set_color($this->control, R_COLOR_LINK, $color->red, $color->green, $color->blue, $color->alpha);
     }
 
     protected function releaseNative(): void

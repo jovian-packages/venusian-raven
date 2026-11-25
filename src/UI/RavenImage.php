@@ -4,6 +4,7 @@ namespace Jovian\Toolkits\Raven\UI;
 
 use Surface\Toolkits\UI\TKImage;
 use Surface\Toolkits\ToolkitException;
+use Surface\Contracts\Toolkits\UI\Corners;
 use Surface\Contracts\Toolkits\UI\ImageScaling;
 use Jovian\Toolkits\Raven\UI\Concerns\RavenNative;
 
@@ -52,6 +53,17 @@ class RavenImage extends TKImage
     {
         Rborder_set_corner_radius($this->native, $radius, $radius, $radius, $radius);
         Rimage_set_corner_radius($this->control, $radius);
+    }
+
+    /**
+     * The border takes each corner's own radius; the picture rounds with one
+     * (Rimage_set_corner_radius), so it takes the radius when the corners agree and stays
+     * square when they differ.
+     */
+    protected function applyCorners(Corners $corners): void
+    {
+        Rborder_set_corner_radius($this->native, $corners->topLeft, $corners->topRight, $corners->bottomRight, $corners->bottomLeft);
+        Rimage_set_corner_radius($this->control, $corners->isUniform() ? $corners->topLeft : 0.0);
     }
 
     protected function releaseNative(): void
