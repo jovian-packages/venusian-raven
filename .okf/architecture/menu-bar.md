@@ -5,7 +5,7 @@ description: One Raven MenuBar per window, first in its box - how nodes become R
 resource: src/Menus/
 tags: [raven, menus, macos, linux]
 status: draft
-generated: { by: claude-opus/5.5, at: 2026-11-23T00:20:00Z }
+generated: { by: claude-opus/5.5, at: 2026-11-26T09:00:00Z }
 sources:
   - id: bar
     resource: src/Menus/RavenMenuBar.php
@@ -41,7 +41,7 @@ Menus and items are widgets. Raven's menu calls only append, so each new widget 
 | A toggle | a checkable item. Raven flips it before the callback: the mark is put back, and topside sets it through `change()` |
 | A choice | one checkable item per option |
 | Enabled | `Rwidget_set_enabled` |
-| Edit kinds | the edit chord sent into the window (`Rwindow_inject_key`): Raven's text widgets edit by their keys |
+| Edit kinds | the edit chord sent into the window (`Rwindow_inject_key`): Raven's text widgets edit by their keys; Paste and Match Style is Paste's chord, as Raven's text edit pastes plain text only |
 | Close Window, Minimize | `Rwindow_close` (through the close callback and its confirm), `Rwindow_minimize` |
 | Full screen | `supports()` is false: Raven has no call for it. Topside shows it disabled and logs once |
 | About panel | `RavenSession::showAbout()`: Raven has no About panel, so a dialog (`Rdialog_open`) with the fields, one at a time |

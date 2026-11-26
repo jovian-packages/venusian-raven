@@ -39,6 +39,8 @@ class RavenMenuBar extends ToolkitMenuBar
         'cut' => ['X', false],
         'copy' => ['C', false],
         'paste' => ['V', false],
+        // Raven's text edit pastes plain text only: the same key as Paste.
+        'paste-and-match-style' => ['V', false],
         'select-all' => ['A', false],
     ];
 

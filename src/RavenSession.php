@@ -3,6 +3,7 @@
 namespace Jovian\Toolkits\Raven;
 
 use Surface\Contracts\Toolkits\Mail\QuitRequested;
+use Surface\Contracts\Toolkits\Styling\ColorScheme;
 use Surface\Toolkits\ToolkitSession;
 use Surface\Toolkits\Menus\AboutPanel;
 use Jovian\Toolkits\Raven\Menus\RavenMenuBar;
@@ -40,6 +41,15 @@ class RavenSession extends ToolkitSession
             $this->slice,
         // Raven's own Quit: the shown bar's Quit answers it, or the application is asked.
         )->onQuit(fn () => RavenMenuBar::quitRequested() || $this->post(new QuitRequested()));
+    }
+
+    /**
+     * Dark or light is a member of the configured theme's family, laid over it; the system's
+     * choice keeps the theme as configured.
+     */
+    protected function applyColorScheme(ColorScheme $scheme): void
+    {
+        $this->application->applyColorScheme($scheme);
     }
 
     /**

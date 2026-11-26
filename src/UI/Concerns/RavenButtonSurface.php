@@ -56,8 +56,9 @@ trait RavenButtonSurface
         if ($frameless) {
             Rbutton_set_style($this->control, is_null($color) ? R_BUTTON_FLAT : R_BUTTON_DEFAULT);
         }
-        // A glass theme paints a button's surface in glass whatever its colours: a set one is solid.
-        Rwidget_set_material($this->control, is_null($color) ? R_MATERIAL_DEFAULT : R_MATERIAL_SOLID);
+        // A glass theme paints a button's surface in glass whatever its colours, and a flat button's
+        // on hover: a set colour and a frameless button's clear ones are solid, painted as given.
+        Rwidget_set_material($this->control, is_null($color) && ! $frameless ? R_MATERIAL_DEFAULT : R_MATERIAL_SOLID);
 
         foreach ([R_COLOR_CONTROL => 0.0, R_COLOR_CONTROL_HOVERED => 0.08, R_COLOR_CONTROL_PRESSED => -0.08] as $role => $shift) {
             if (is_null($color)) {

@@ -319,6 +319,17 @@ it('shows an edit item\'s keys and leaves them to the focused widget', function 
         ->and(delivered($menus))->toBe([]);
 });
 
+it('gives Paste and Match Style the key of Paste, and has a key for every edit kind', function (): void {
+    foreach (StandardKind::cases() as $kind) {
+        if ($kind->isEdit()) {
+            expect(RavenMenuBar::EDIT)->toHaveKey($kind->value);
+        }
+    }
+
+    expect(RavenMenuBar::EDIT[StandardKind::PASTE_AND_MATCH_STYLE->value])
+        ->toBe(RavenMenuBar::EDIT[StandardKind::PASTE->value]);
+});
+
 it('asks to quit and quits nothing', function (): void {
     $menus = ravenMenus();
     $this->opened[] = ravenWindow($menus, MenuBar::make(Menu::make('Program', 'program', Standard::quit())));

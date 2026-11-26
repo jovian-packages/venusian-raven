@@ -2,6 +2,7 @@
 
 ## 2026-11-26
 
+* **Update**: [Menu bar](/architecture/menu-bar.md): `StandardKind::PASTE_AND_MATCH_STYLE` sends Paste's chord. [Session](/architecture/session.md): `applyColorScheme()` picks the dark or light member of the theme's family. [UI primitives](/architecture/ui-primitives.md): an empty-label button with an icon holds the icon alone; frameless buttons are solid material, so no hover glass.
 * **Update**: [UI primitives](/architecture/ui-primitives.md): `RavenScrollView` reports scrolling: Raven has no scroll callback, so while watched a 30 Hz timer compares `Rscroll_box_get_offset` (as the item views do); the position is the box's offset and rect against what its child asks to be. 6 real-window checks on 8.4 NTS and ZTS.
 * **Update**: [UI primitives](/architecture/ui-primitives.md), [Window](/architecture/window.md): `ButtonStyle::HELP` drawn as DEFAULT (Raven has no help button); `openUrl()` through `Ropen_url`. Checked in the real app on 8.4 NTS and ZTS.
 

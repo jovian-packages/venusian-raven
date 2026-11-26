@@ -63,6 +63,11 @@ class RavenButton extends TKButton
     /** The image in the icon box; 0 without an icon. */
     private int $icon_image = 0;
 
+    /** The label while the icon box holds it: with an empty label the icon is alone in the box. */
+    private int $icon_label = 0;
+
+    private bool $label_seated = false;
+
     /** A texture read from the icon file, this button's own; R_INVALID_ID for none. */
     private int $icon_texture = R_INVALID_ID;
 
@@ -93,9 +98,15 @@ class RavenButton extends TKButton
             Rbutton_set_clicked_callback($this->control, null, null);
         }
 
+        // a label out of the icon box is no widget's child: it goes by itself
+        if ($this->icon_box !== 0 && ! $this->label_seated && Rwidget_is_valid($this->icon_label) === R_TRUE) {
+            Rwidget_destroy($this->icon_label);
+        }
+
         $this->releaseWidget();
         $this->icon_box = 0;
         $this->icon_image = 0;
+        $this->icon_label = 0;
         $this->dropIconTexture();
     }
 
@@ -131,6 +142,7 @@ class RavenButton extends TKButton
     protected function applyLabel(string $label): void
     {
         Rlabel_set_text($this->labelWidget(), $label);
+        $this->seatLabel($label !== '');
     }
 
     protected function applyStyle(ButtonStyle $style): void
@@ -216,9 +228,29 @@ class RavenButton extends TKButton
             return Rwidget_get_child($this->control, 0);
         }
 
-        $first = Rwidget_get_child($this->icon_box, 0);
+        return $this->icon_label;
+    }
 
-        return $first === $this->icon_image ? Rwidget_get_child($this->icon_box, 1) : $first;
+    /**
+     * A button whose label is empty holds the icon alone: no label in the box, so no spacing
+     * and no empty label's width beside the image.
+     */
+    private function seatLabel(bool $wanted): void
+    {
+        if ($this->icon_box === 0 || $wanted === $this->label_seated) {
+            return;
+        }
+
+        if ($wanted) {
+            Rwidget_add_child($this->icon_box, $this->icon_label);
+            Rslot_set_valign($this->icon_label, R_VALIGN_CENTER);
+            Rslot_set_padding($this->icon_label, 0, 0, 0, 0);
+            $this->orderIconBox();
+        } else {
+            Rwidget_remove_child($this->icon_box, $this->icon_label);
+        }
+
+        $this->label_seated = $wanted;
     }
 
     /**
@@ -298,6 +330,9 @@ class RavenButton extends TKButton
             Rwidget_add_child($this->control, $box);
             $this->icon_box = $box;
             $this->icon_image = $image;
+            $this->icon_label = $label;
+            $this->label_seated = true;
+            $this->seatLabel($this->label() !== '');
             $this->orderIconBox();
             $this->placeContent();
             $this->padContent();
@@ -318,11 +353,15 @@ class RavenButton extends TKButton
 
         $box = $this->icon_box;
         $label = $this->labelWidget();
-        Rwidget_remove_child($box, $label);
+        if ($this->label_seated) {
+            Rwidget_remove_child($box, $label);
+        }
         Rwidget_remove_child($this->control, $box);
         Rwidget_destroy($box);
         $this->icon_box = 0;
         $this->icon_image = 0;
+        $this->icon_label = 0;
+        $this->label_seated = false;
 
         Rwidget_add_child($this->control, $label);
         $this->placeContent();

@@ -5,7 +5,7 @@ description: Raven started once per process, its quit handed to the app, and a p
 resource: src/Raven.php
 tags: [raven, session, macos, linux]
 status: draft
-generated: { by: claude-opus/5.5, at: 2026-11-21T17:39:27Z }
+generated: { by: claude-opus/5.5, at: 2026-11-26T09:00:00Z }
 sources:
   - id: raven
     resource: src/Raven.php
@@ -51,3 +51,7 @@ Raven watches none of the application's descriptors.[^raven]
 
 [^raven]: Raven (the Toolkit)
 [^session]: RavenSession
+
+## Colour scheme
+
+`RavenSession::applyColorScheme()` (topside's once-only hook, after `Raven` has applied `raven.theme`) asks `Raven::applyColorScheme()`: dark or light is the member of the theme's family with the trailing `Dark`/`Light` swapped (`GlassDark`/`GlassLight`, `Dark`/`Light`, `HighContrastDark`/`HighContrastLight`, the looks too), by `Rtheme_use`; a theme already of the scheme is kept, system changes nothing, and a theme with no such member throws.

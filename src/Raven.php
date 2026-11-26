@@ -8,6 +8,7 @@ use CFRunLoopSource;
 use Closure;
 use RInitDesc;
 use RuntimeException;
+use Surface\Contracts\Toolkits\Styling\ColorScheme;
 use Surface\Contracts\Toolkits\Toolkit;
 use Jovian\Toolkits\Raven\UI\Support\RavenFrames;
 
@@ -271,6 +272,29 @@ class Raven implements Toolkit
         }
 
         self::$draws_effects = ! $this->headless && $backend === R_BACKEND_VULKAN;
+    }
+
+    /**
+     * Draw in the dark or the light member of the theme in use: a theme's family is its name
+     * with the trailing Dark or Light swapped (GlassDark and GlassLight, Dark and Light,
+     * HighContrastDark and HighContrastLight). Run after applyTheme(), so it wins. The system
+     * scheme changes nothing; a theme already of the scheme asked is kept.
+     *
+     * @throws RuntimeException The theme has no member of the other scheme.
+     */
+    public function applyColorScheme(ColorScheme $scheme): void
+    {
+        if ($scheme === ColorScheme::SYSTEM || (Rtheme_is_dark() === R_TRUE) === ($scheme === ColorScheme::DARK)) {
+            return;
+        }
+
+        $name = Rtheme_get_name();
+        $other = $scheme === ColorScheme::DARK ? ['Light', 'Dark'] : ['Dark', 'Light'];
+        $member = str_ends_with($name, $other[0]) ? substr($name, 0, -strlen($other[0])).$other[1] : null;
+
+        if (is_null($member) || Rtheme_use($member) !== R_TRUE) {
+            throw new RuntimeException("toolkits.color_scheme '{$scheme->value}': the Raven theme '{$name}' has no ".strtolower($other[1]).' member of its family.');
+        }
     }
 
     /**
