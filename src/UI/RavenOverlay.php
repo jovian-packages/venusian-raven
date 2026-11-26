@@ -4,7 +4,6 @@ namespace Jovian\Toolkits\Raven\UI;
 
 use Surface\Toolkits\UI\TKOverlay;
 use Surface\Toolkits\UI\TKPrimitive;
-use Surface\Contracts\Toolkits\UI\Align;
 use Surface\Contracts\Toolkits\UI\Insets;
 use Jovian\Toolkits\Raven\UI\Concerns\RavenNative;
 
@@ -12,11 +11,13 @@ use Jovian\Toolkits\Raven\UI\Concerns\RavenNative;
  * Raven's overlay (R_WIDGET_OVERLAY) in a border, whose padding is the overlay's. Raven draws
  * its children in order, the first at the back, and places each in the whole area by its
  * slot: its alignment, and its margin as slot padding. Filling an axis is FILL there,
- * whatever the alignment; on an axis it does not fill, the alignment places it.
+ * whatever the alignment, unless the child has a ceiling that way; on an axis it does not
+ * fill, the alignment places it (RavenNative::slotAligned()).
  *
  * Raven's overlay asks for the largest of its children. A child that fills both ways must
- * not size it, so its native's desired size is capped at 0 (Rwidget_set_max_size): Raven still
- * stretches a FILL slot over the whole area, so it takes the overlay's size and gives it none.
+ * not size it, so its native's desired size is capped at 0 (RavenNative::sizeNative()): Raven
+ * still stretches a FILL slot over the whole area, so it takes the overlay's size and gives
+ * it none.
  */
 class RavenOverlay extends TKOverlay
 {
@@ -84,13 +85,8 @@ class RavenOverlay extends TKOverlay
      */
     protected function childLayoutChanged(TKPrimitive $child): void
     {
-        [$fillsH, $fillsV] = $child->fills();
-        [$alignH, $alignV] = $child->aligned();
-        self::placeAlignment($child->native(), [$fillsH ? Align::FILL : $alignH, $fillsV ? Align::FILL : $alignV]);
-
-        $this->sizesOverlay($child)
-            ? Rwidget_set_max_size($child->native(), -1, -1)
-            : Rwidget_set_max_size($child->native(), 0, 0);
+        self::placeAlignment($child->native(), $child->slotAligned());
+        $child->sizeNative();
         $this->tellExpansion();
     }
 

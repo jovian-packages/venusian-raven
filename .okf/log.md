@@ -1,6 +1,21 @@
 # Log
 
+## 2026-11-26
+
+* **Update**: [UI primitives](/architecture/ui-primitives.md): `RavenScrollView` reports scrolling: Raven has no scroll callback, so while watched a 30 Hz timer compares `Rscroll_box_get_offset` (as the item views do); the position is the box's offset and rect against what its child asks to be. 6 real-window checks on 8.4 NTS and ZTS.
+* **Update**: [UI primitives](/architecture/ui-primitives.md), [Window](/architecture/window.md): `ButtonStyle::HELP` drawn as DEFAULT (Raven has no help button); `openUrl()` through `Ropen_url`. Checked in the real app on 8.4 NTS and ZTS.
+
 ## 2026-11-25
+
+* **Update**: [Window](/architecture/window.md): alerts (topside 85ef6af), a Raven dialog laid out as `Rmessage_box`. 18 real-window checks on 8.4 NTS and ZTS.
+* **Fix**: [UI primitives](/architecture/ui-primitives.md): a fitted picture's height follows its width (once per frame before the layout, through Raven's frame callback: `RavenFrames`); a picture with differing corners is drawn by the border's effect inside its four radii (`resources/shaders/picture.spv`), on the Vulkan backend. Checked in a real app on both builds; the Windowless suite passes.
+* **Update**: [UI primitives](/architecture/ui-primitives.md): `RavenWebView` on topside's `TKWebView` (c0bb08a) over Raven's system web view (WKWebView on macOS; `supported()` false elsewhere), loaded and failed from Raven's event callback, the YouTube embed shown; button padding as Raven's padding metrics at 0 and each side on the content's slot (per side, with an icon box too; the padding replaces the theme's). 26 real-window checks on 8.4 NTS and ZTS.
+
+* **Correction**: [UI primitives](/architecture/ui-primitives.md): in a glass theme a set background showed as frosted glass with what is behind blurred through it; a widget given a background is now solid (`Rwidget_set_material`), its colour painted as given. 14 headless and 16 real-window checks on 8.4 NTS and ZTS.
+
+* **Update**: [UI primitives](/architecture/ui-primitives.md): homogeneous columns and rows as equal fill slots, which Raven shares by coefficient alone. 15 headless and 3 real-window checks on 8.4 NTS and ZTS.
+
+* **Update**: [UI primitives](/architecture/ui-primitives.md): label runs through Raven's Markdown (bold and italic; a run's colour not shown; a quarter line taller per line), maximum size (a ceiling keeps the view out of a FILL slot and a filling view asks for the whole ceiling), and the icon after a button's label. 31 headless and 5 real-window checks on 8.4 NTS and ZTS.
 
 * **Update**: [UI primitives](/architecture/ui-primitives.md): clickable groups through an event callback on each group's border (a press and release on it or on passive content inside post `GroupClicked`; controls keep theirs; a list's items now keep their primary clicks too); MOVE transitions not shown (Raven cannot move a widget by its size), the view shows and hides at once. 36 headless and 7 real-window checks on 8.4 NTS and ZTS.
 

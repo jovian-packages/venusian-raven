@@ -64,7 +64,7 @@ class RavenGrid extends TKGrid
 
     protected function childLayoutChanged(TKPrimitive $child): void
     {
-        self::placeAlignment($child->native(), $child->aligned());
+        self::placeAlignment($child->native(), $child->slotAligned());
         $this->restretch();
     }
 
@@ -78,7 +78,7 @@ class RavenGrid extends TKGrid
         $cell = $this->cellOf($child);
         Rslot_set_grid($child->native(), $cell->column, $cell->row);
         Rslot_set_grid_span($child->native(), $cell->columnSpan, $cell->rowSpan);
-        self::placeAlignment($child->native(), $child->aligned());
+        self::placeAlignment($child->native(), $child->slotAligned());
     }
 
     private function restretch(): void

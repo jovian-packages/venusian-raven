@@ -19,7 +19,8 @@ use Jovian\Toolkits\Raven\UI\Concerns\RavenNative;
  * draws the field as any other: Raven has no search field look. Borderless is the field's own
  * colours and line made clear: R_COLOR_INPUT, R_COLOR_BORDER (Raven's look) and
  * R_COLOR_CONTROL_BORDER (the platform looks) at alpha 0, R_METRIC_BORDER_WIDTH 0. A
- * background is the border's; the field's own fill is then clear, so it shows. Read-only and
+ * background is the border's, solid in a glass theme; the field's own fill is then clear and
+ * solid (a glass theme's field is glass of its own), so it shows. Read-only and
  * the maximum length are Raven's own (Rtext_input_set_read_only, Rtext_input_set_max_length).
  */
 class RavenTextInput extends TKTextInput
@@ -96,9 +97,13 @@ class RavenTextInput extends TKTextInput
      */
     protected function applyBackground(?Color $color): void
     {
-        is_null($color)
-            ? Rborder_set_background($this->native, 0, 0, 0, 0)
-            : Rborder_set_background($this->native, $color->red, $color->green, $color->blue, $color->alpha);
+        if (is_null($color)) {
+            Rborder_set_background($this->native, 0, 0, 0, 0);
+            Rwidget_set_material($this->native, R_MATERIAL_DEFAULT);
+        } else {
+            Rborder_set_background($this->native, $color->red, $color->green, $color->blue, $color->alpha);
+            Rwidget_set_material($this->native, R_MATERIAL_SOLID);
+        }
         $this->backed = ! is_null($color);
         $this->paintField();
     }
@@ -142,9 +147,12 @@ class RavenTextInput extends TKTextInput
      */
     private function paintField(): void
     {
-        $this->isBorderless() || $this->backed
+        $clear = $this->isBorderless() || $this->backed;
+        $clear
             ? Rwidget_set_color($this->control, R_COLOR_INPUT, 0.0, 0.0, 0.0, 0.0)
             : Rwidget_clear_color($this->control, R_COLOR_INPUT);
+        // A glass theme's field is glass of its own, whatever its colours: solid while clear.
+        Rwidget_set_material($this->control, $clear ? R_MATERIAL_SOLID : R_MATERIAL_DEFAULT);
     }
 
     protected function releaseNative(): void

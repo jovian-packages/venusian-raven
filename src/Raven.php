@@ -9,6 +9,7 @@ use Closure;
 use RInitDesc;
 use RuntimeException;
 use Surface\Contracts\Toolkits\Toolkit;
+use Jovian\Toolkits\Raven\UI\Support\RavenFrames;
 
 /**
  * Raven's one context per process. Raven has no loop of its own: a pump asks it for frames.
@@ -43,6 +44,9 @@ class Raven implements Toolkit
      */
     protected ?Closure $on_quit = null;
 
+    /** Set by initialize(): the backend Raven started on runs effects. */
+    private static bool $draws_effects = false;
+
     /**
      * @param string $application_name Raven's app_name: the macOS application menu's title.
      * @param string $backend 'vulkan' or 'null'.
@@ -69,6 +73,16 @@ class Raven implements Toolkit
         }
 
         $this->applyTheme();
+        RavenFrames::install();
+    }
+
+    /**
+     * Whether Raven runs effects (raven_shader.h) here: its Vulkan backend does; the null
+     * backend draws an effect as a plain rectangle in its colour.
+     */
+    public static function drawsEffects(): bool
+    {
+        return self::$draws_effects;
     }
 
     /**
@@ -255,6 +269,8 @@ class Raven implements Toolkit
             Rerror_get_last($detail, $severity);
             throw new RuntimeException('Raven did not start: '.($detail ?: 'Rinit_ex failed').'.');
         }
+
+        self::$draws_effects = ! $this->headless && $backend === R_BACKEND_VULKAN;
     }
 
     /**

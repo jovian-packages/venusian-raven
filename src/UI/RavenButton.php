@@ -7,6 +7,8 @@ use Surface\NutsAndBolts\Color;
 use Surface\Toolkits\UI\TKButton;
 use Surface\Toolkits\ToolkitException;
 use Surface\Contracts\Toolkits\UI\ButtonStyle;
+use Surface\Contracts\Toolkits\UI\IconPosition;
+use Surface\Contracts\Toolkits\UI\Insets;
 use Surface\Contracts\Toolkits\Styling\FontSpec;
 use Surface\Contracts\Toolkits\Styling\TextAlignment;
 use Jovian\Toolkits\Raven\UI\Concerns\RavenText;
@@ -22,12 +24,17 @@ use Jovian\Toolkits\Raven\UI\Concerns\RavenButtonSurface;
  *
  * Its content is the label Raven gives it, or, with an icon, what Raven's header suggests for
  * one (any single child, "e.g. an HBox with an icon"): a horizontal box holding an image and
- * that same label. Its
+ * that same label, the image before it or, for a trailing icon, after it. Its
  * font is the button's (Rwidget_set_font), its size and alignment the label's, its text colour
  * the button's R_COLOR_TEXT, which the label takes. BORDERLESS and LINK have no line: Raven's
  * flat button with no fill in any state, or, with a background, Raven's default button filled
  * with it and its line taken away (RavenButtonSurface). LINK's text is the theme's R_COLOR_LINK
  * for the button.
+ * Padding is the content's own: Raven's button pads its child by the metrics R_METRIC_PADDING_X
+ * and _Y (the same on both sides), so a padding is those metrics at 0 and each side on the
+ * content's slot (Rslot_set_padding), which the button's measure adds to its natural size. The
+ * height still has Raven's R_METRIC_CONTROL_HEIGHT as its floor. The content is the label, or
+ * the icon box: its padding follows it when the icon comes or goes.
  * Raven has no default or cancel button: a role is not shown.
  */
 class RavenButton extends TKButton
@@ -52,6 +59,9 @@ class RavenButton extends TKButton
 
     /** The box holding the icon and the label; 0 without an icon. */
     private int $icon_box = 0;
+
+    /** The image in the icon box; 0 without an icon. */
+    private int $icon_image = 0;
 
     /** A texture read from the icon file, this button's own; R_INVALID_ID for none. */
     private int $icon_texture = R_INVALID_ID;
@@ -85,7 +95,34 @@ class RavenButton extends TKButton
 
         $this->releaseWidget();
         $this->icon_box = 0;
+        $this->icon_image = 0;
         $this->dropIconTexture();
+    }
+
+    /**
+     * Padding set: Raven's own padding metrics at 0 and each side on the content's slot. None
+     * gives Raven's metrics back.
+     */
+    protected function applyPadding(Insets $padding): void
+    {
+        if ($padding->isZero()) {
+            Rwidget_clear_metric($this->control, R_METRIC_PADDING_X);
+            Rwidget_clear_metric($this->control, R_METRIC_PADDING_Y);
+        } else {
+            Rwidget_set_metric($this->control, R_METRIC_PADDING_X, 0.0);
+            Rwidget_set_metric($this->control, R_METRIC_PADDING_Y, 0.0);
+        }
+
+        $this->padContent();
+    }
+
+    /**
+     * The padding on the slot of whatever is the button's content now.
+     */
+    private function padContent(): void
+    {
+        $padding = $this->padding();
+        Rslot_set_padding(Rwidget_get_child($this->control, 0), $padding->left, $padding->top, $padding->right, $padding->bottom);
     }
 
     /**
@@ -98,7 +135,8 @@ class RavenButton extends TKButton
 
     protected function applyStyle(ButtonStyle $style): void
     {
-        if ($style === ButtonStyle::DEFAULT) {
+        // Raven has no help button: HELP is a framed button, its label shown.
+        if ($style->framed()) {
             Rbutton_set_style($this->control, R_BUTTON_DEFAULT);
         }
         $this->paintSurface();
@@ -114,8 +152,8 @@ class RavenButton extends TKButton
         Rlabel_set_text_size($this->labelWidget(), $font->size);
         $this->text_size = $font->size;
 
-        if ($this->icon_box !== 0) {
-            $this->sizeIcon(Rwidget_get_child($this->icon_box, 0));
+        if ($this->icon_image !== 0) {
+            $this->sizeIcon($this->icon_image);
         }
     }
 
@@ -154,17 +192,42 @@ class RavenButton extends TKButton
         $this->icon_texture = $owned;
     }
 
+    /**
+     * The label before the image in the icon box for TRAILING, after it for LEADING.
+     */
+    protected function applyIconPosition(IconPosition $position): void
+    {
+        if ($this->icon_box !== 0) {
+            $this->orderIconBox();
+        }
+    }
+
     protected function surfaceIsFlat(): bool
     {
-        return $this->style() !== ButtonStyle::DEFAULT;
+        return ! $this->style()->framed();
     }
 
     /**
-     * The label Raven made: the button's child, or the second in the icon box.
+     * The label Raven made: the button's child, or the one in the icon box beside the image.
      */
     private function labelWidget(): int
     {
-        return $this->icon_box !== 0 ? Rwidget_get_child($this->icon_box, 1) : Rwidget_get_child($this->control, 0);
+        if ($this->icon_box === 0) {
+            return Rwidget_get_child($this->control, 0);
+        }
+
+        $first = Rwidget_get_child($this->icon_box, 0);
+
+        return $first === $this->icon_image ? Rwidget_get_child($this->icon_box, 1) : $first;
+    }
+
+    /**
+     * Raven draws an HBox's children in order: the image first for LEADING, last for TRAILING.
+     * Rwidget_insert_child moves a child already there.
+     */
+    private function orderIconBox(): void
+    {
+        Rwidget_insert_child($this->icon_box, $this->icon_image, $this->iconPosition() === IconPosition::TRAILING ? 1 : 0);
     }
 
     /**
@@ -211,8 +274,8 @@ class RavenButton extends TKButton
     }
 
     /**
-     * The icon box in the button, made the first time: the image, then the label moved into
-     * it, the theme's spacing between them.
+     * The icon box in the button, made the first time: the image and the label moved into it,
+     * in the icon position's order, the theme's spacing between them.
      */
     private function showIcon(int $texture): void
     {
@@ -229,15 +292,19 @@ class RavenButton extends TKButton
             Rwidget_remove_child($this->control, $label);
             Rwidget_add_child($box, $label);
             Rslot_set_valign($label, R_VALIGN_CENTER);
+            // the padding was the label's slot's: it belongs to the box now
+            Rslot_set_padding($label, 0, 0, 0, 0);
 
             Rwidget_add_child($this->control, $box);
             $this->icon_box = $box;
+            $this->icon_image = $image;
+            $this->orderIconBox();
             $this->placeContent();
+            $this->padContent();
         }
 
-        $image = Rwidget_get_child($this->icon_box, 0);
-        Rimage_set_texture($image, $texture);
-        $this->sizeIcon($image);
+        Rimage_set_texture($this->icon_image, $texture);
+        $this->sizeIcon($this->icon_image);
     }
 
     /**
@@ -250,14 +317,16 @@ class RavenButton extends TKButton
         }
 
         $box = $this->icon_box;
-        $label = Rwidget_get_child($box, 1);
+        $label = $this->labelWidget();
         Rwidget_remove_child($box, $label);
         Rwidget_remove_child($this->control, $box);
         Rwidget_destroy($box);
         $this->icon_box = 0;
+        $this->icon_image = 0;
 
         Rwidget_add_child($this->control, $label);
         $this->placeContent();
+        $this->padContent();
     }
 
     /**

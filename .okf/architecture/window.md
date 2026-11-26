@@ -42,6 +42,14 @@ Raven reports neither activation nor a scale change, so `settle()` compares both
 * `closeNative()` = `Rwindow_close()`: Raven runs the close callback, which takes the close path.
 * `beforeClose()` closes the owned children first: Raven destroys a window's owned windows with it without asking them.
 
+# Alert
+
+`showAlert()`: `Rdialog_open` with content laid out as Raven's own `Rmessage_box` (whose buttons are fixed sets): a 380-wide box at spacing 12, the message at 17, the detail wrapped at 0.8 opacity, a Raven check box for the suppression, the buttons in order in a right-aligned row (spacing 8, top padding 6, at least 84 wide), the default one Primary. A button closes the dialog with its index plus one; Enter on the content closes it with the default; Esc is Raven's dismissal, 0, the cancel button. No style or title. `closeAlert()` closes the dialog before the window goes. Checked by a real-window script against the live repos (18 checks).
+
+# Browse
+
+`openUrl()`: `Ropen_url()`.
+
 # Not ported yet
 
 From `deprecated2/RavenWindow.php`: right-click and focus tracking, the content floor.

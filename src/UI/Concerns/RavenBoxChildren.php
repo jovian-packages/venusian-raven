@@ -11,6 +11,11 @@ use Surface\Contracts\Toolkits\UI\Insets;
  * background. A child's fill (its share of the box's axis) and alignment (its place inside
  * its slot) are its slot in the box, placed here whenever they change. Children are
  * appended, taken out and moved in the box.
+ *
+ * Homogeneous makes every slot a fill slot of coefficient 1, which Raven shares by
+ * coefficient alone. The box still asks its parent for the sum of its children's lengths,
+ * not the largest times their number: given no more than that, the longest child gets less
+ * than it asks for (a wrapping label wraps sooner).
  */
 trait RavenBoxChildren
 {
@@ -87,9 +92,24 @@ trait RavenBoxChildren
      */
     protected function childLayoutChanged(TKPrimitive $child): void
     {
-        self::placeShare($child->native(), $this->vertical(), [$child->expands(true), $child->expands(false)]);
-        self::placeAlignment($child->native(), $child->aligned());
+        $this->isHomogeneous()
+            ? Rslot_set_fill($child->native(), 1.0)
+            : self::placeShare($child->native(), $this->vertical(), [$child->expands(true), $child->expands(false)]);
+        self::placeAlignment($child->native(), $child->slotAligned());
         $this->tellExpansion();
+    }
+
+    /**
+     * Every child a fill slot of the same coefficient: Raven's box gives fill slots the room
+     * left by the auto slots, the gaps and the margins (slot padding) in proportion to the
+     * coefficient alone, whatever each one's desired size, so every child is as long as the
+     * next. Off, each slot is its fill share again.
+     */
+    protected function applyHomogeneous(bool $on): void
+    {
+        foreach ($this->children() as $child) {
+            $this->childLayoutChanged($child);
+        }
     }
 
     protected function childVisibilityChanged(TKPrimitive $child): void

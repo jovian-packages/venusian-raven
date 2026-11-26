@@ -65,6 +65,8 @@ use Surface\Contracts\Toolkits\UI\TKSegmentedControl;
 use Jovian\Toolkits\Raven\UI\RavenSegmentedControl;
 use Surface\Contracts\Toolkits\UI\TKImage;
 use Jovian\Toolkits\Raven\UI\RavenImage;
+use Surface\Contracts\Toolkits\UI\TKWebView;
+use Jovian\Toolkits\Raven\UI\RavenWebView;
 
 class RavenAdapterDriver extends ToolkitAdapterDriver
 {
@@ -102,6 +104,7 @@ class RavenAdapterDriver extends ToolkitAdapterDriver
         TKCollectionView::class => RavenCollectionView::class,
         TKTree::class => RavenTree::class,
         TKTextArea::class => RavenTextArea::class,
+        TKWebView::class => RavenWebView::class,
     ];
 
     public function __construct(

@@ -7,6 +7,7 @@ use RuntimeException;
 use WeakReference;
 use Surface\NutsAndBolts\Color;
 use Surface\Toolkits\UI\TKFixed;
+use Surface\Toolkits\UI\TKOverlay;
 use Surface\Contracts\Toolkits\UI\Align;
 use Surface\Contracts\Toolkits\UI\Cursor;
 use Surface\Contracts\Toolkits\UI\Corners;
@@ -66,6 +67,9 @@ trait RavenNative
 
     /** What takes focus and input. 0 once removed. */
     protected int $control = 0;
+
+    /** The floor applyMinSize() was given: the minimum size, or what a fixed covers. */
+    private array $native_floor = [0, 0];
 
     /** Whether the native's event callback and the window's watcher hear clicks. */
     private bool $hearing_clicks = false;
@@ -277,13 +281,22 @@ trait RavenNative
     }
 
     /**
-     * The border's colour; null is no colour (alpha 0 draws no background).
+     * The border's colour; null is no colour (alpha 0 draws no background). A glass theme
+     * makes every border with a colour a panel of frosted glass, which shows what is behind
+     * it blurred: a colour set here is solid (Rwidget_set_material), painted as given, alpha
+     * included. Null gives the border the theme's material again.
      */
     protected function applyBackground(?Color $color): void
     {
-        is_null($color)
-            ? Rborder_set_background($this->native, 0, 0, 0, 0)
-            : Rborder_set_background($this->native, $color->red, $color->green, $color->blue, $color->alpha);
+        if (is_null($color)) {
+            Rborder_set_background($this->native, 0, 0, 0, 0);
+            Rwidget_set_material($this->native, R_MATERIAL_DEFAULT);
+
+            return;
+        }
+
+        Rborder_set_background($this->native, $color->red, $color->green, $color->blue, $color->alpha);
+        Rwidget_set_material($this->native, R_MATERIAL_SOLID);
     }
 
     /**
@@ -321,6 +334,7 @@ trait RavenNative
         if (is_null($this->parent())) {
             self::placeShare($this->native, true, $this->fills());
         }
+        $this->sizeNative();
     }
 
     /**
@@ -329,7 +343,7 @@ trait RavenNative
     protected function applyAlign(Align $horizontal, Align $vertical): void
     {
         if (is_null($this->parent())) {
-            self::placeAlignment($this->native, $this->aligned());
+            self::placeAlignment($this->native, $this->slotAligned());
         }
     }
 
@@ -340,7 +354,84 @@ trait RavenNative
      */
     protected function applyMinSize(int $width, int $height): void
     {
-        Rwidget_set_min_size($this->native, $width, $height);
+        $this->native_floor = [$width, $height];
+        $this->sizeNative();
+    }
+
+    /**
+     * A ceiling on the size the native asks of its parent (Rwidget_set_max_size; 0 is none, -1
+     * to Raven). The parent placed the slot already (childLayoutChanged); the content
+     * container places its own.
+     */
+    protected function applyMaxSize(int $width, int $height): void
+    {
+        $this->sizeNative();
+        if (is_null($this->parent())) {
+            self::placeAlignment($this->native, $this->slotAligned());
+        }
+    }
+
+    /**
+     * The native's minimum and maximum size from minSize(), maxSize(), fill() and the parent.
+     *
+     * Raven stretches a FILL slot over its room whatever the widget's maximum, and places any
+     * other slot at the widget's desired size, never past its room. So a view with a ceiling
+     * is never in a FILL slot (slotAligned() makes FILL the start), and one that fills as well
+     * asks for its whole ceiling (the floor rises to it): placed by its alignment, it is as big
+     * as its room up to the ceiling. In a fixed the frame sizes it, so the floor stays. A child
+     * that covers an overlay (fills both ways) asks for nothing: its desired size is capped at
+     * 0, and its FILL slot still stretches it over the overlay.
+     *
+     * @internal For this adapter's containers.
+     */
+    public function sizeNative(): void
+    {
+        if ($this->native === 0) {
+            return;
+        }
+
+        [$minWidth, $minHeight] = $this->native_floor;
+        [$maxWidth, $maxHeight] = $this->maximumSize();
+        [$fillsH, $fillsV] = $this->fills();
+        $parent = $this->parent();
+
+        if (! $parent instanceof TKFixed) {
+            $minWidth = $fillsH && $maxWidth > 0 ? max($minWidth, $maxWidth) : $minWidth;
+            $minHeight = $fillsV && $maxHeight > 0 ? max($minHeight, $maxHeight) : $minHeight;
+        }
+        Rwidget_set_min_size($this->native, $minWidth, $minHeight);
+
+        // (a ceiling that way wins: the child is then placed by its alignment, at its ceiling)
+        $covers = $parent instanceof TKOverlay && $fillsH && $fillsV;
+        Rwidget_set_max_size(
+            $this->native,
+            $maxWidth > 0 ? $maxWidth : ($covers ? 0 : -1),
+            $maxHeight > 0 ? $maxHeight : ($covers ? 0 : -1),
+        );
+    }
+
+    /**
+     * Where the parent places the native in its slot: align(), but the start for FILL on an
+     * axis with a ceiling (a FILL slot would stretch it past it). In an overlay, filling an
+     * axis without a ceiling is FILL there.
+     *
+     * @internal For this adapter's containers.
+     * @return array{Align, Align}
+     */
+    public function slotAligned(): array
+    {
+        [$alignH, $alignV] = $this->aligned();
+        [$fillsH, $fillsV] = $this->fills();
+        [$maxWidth, $maxHeight] = $this->maximumSize();
+        $overlay = $this->parent() instanceof TKOverlay;
+
+        $place = static fn (Align $align, bool $fills, int $max): Align => match (true) {
+            $max > 0 => $align === Align::FILL ? Align::START : $align,
+            $overlay && $fills => Align::FILL,
+            default => $align,
+        };
+
+        return [$place($alignH, $fillsH, $maxWidth), $place($alignV, $fillsV, $maxHeight)];
     }
 
     /**

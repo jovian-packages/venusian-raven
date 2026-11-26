@@ -8,6 +8,7 @@ use RuntimeException;
 use Surface\Contracts\Toolkits\Mail\Windows\WindowFocused;
 use Surface\Contracts\Toolkits\Mail\Windows\WindowScaleChanged;
 use Surface\Toolkits\ToolkitWindow;
+use Surface\Contracts\Toolkits\Dialogs\Alert;
 use Surface\Contracts\Toolkits\UI\TKColumn as ColumnContract;
 use WeakReference;
 
@@ -45,6 +46,9 @@ class RavenWindow extends ToolkitWindow
      * @var array<int, WeakReference<RavenWindow>>
      */
     protected array $children = [];
+
+    /** The content of the alert open on the window, until it is answered; 0 when none. */
+    protected int $alert = 0;
 
     /**
      * Who sees this window's input before its widgets, by key: Raven has one hook per window.
@@ -354,6 +358,95 @@ class RavenWindow extends ToolkitWindow
     protected function releaseChild(self $child): void
     {
         unset($this->children[spl_object_id($child)]);
+    }
+
+    /**
+     * A Raven dialog over the window's content, laid out as Raven lays out its own message box
+     * (Rmessage_box, whose buttons are fixed sets): the message at 17 points, the detail
+     * wrapped under it, the buttons in a row on the right, the default one Primary. Enter
+     * presses the default; Esc dismisses the dialog, which answers the cancel button. The
+     * suppression box is a Raven check box above the buttons. Raven's dialogs have no style
+     * and no title: those parts are left out.
+     */
+    protected function showAlert(Alert $alert): void
+    {
+        $window = $this->live();
+        $box = Rwidget_create(R_WIDGET_VBOX);
+        Rpanel_set_spacing($box, 12);
+        Rwidget_set_size($box, 380, -1);
+
+        $message = Rlabel_create($alert->message);
+        Rlabel_set_text_size($message, 17);
+        Rwidget_add_child($box, $message);
+        if (! is_null($alert->detail)) {
+            $detail = Rlabel_create($alert->detail);
+            Rlabel_set_wrap($detail, R_TRUE);
+            Rwidget_set_opacity($detail, 0.8);
+            Rwidget_add_child($box, $detail);
+        }
+        $suppression = 0;
+        if (! is_null($alert->suppression)) {
+            $suppression = Rcheckbox_create($alert->suppression);
+            Rwidget_add_child($box, $suppression);
+        }
+
+        // A dialog's result is the button's index plus one: Raven's 0 is the dismissed dialog.
+        $row = Rwidget_create(R_WIDGET_HBOX);
+        Rpanel_set_spacing($row, 8);
+        foreach ($alert->buttons as $index => $label) {
+            $button = Rbutton_create($label);
+            if ($index === $alert->default) {
+                Rbutton_set_style($button, R_BUTTON_PRIMARY);
+            }
+            Rwidget_set_min_size($button, 84, 0);
+            Rbutton_set_clicked_callback($button, static fn (int $button) => Rdialog_close($button, $index + 1), null);
+            Rwidget_add_child($row, $button);
+        }
+        Rwidget_add_child($box, $row);
+        Rslot_set_halign($row, R_HALIGN_RIGHT);
+        Rslot_set_padding($row, 0, 6, 0, 0);
+
+        $default = $alert->default + 1;
+        Rwidget_set_event_callback($box, static function (int $widget, REvent $event) use ($default): int {
+            if ($event->type !== R_EVENT_KEY_DOWN || ($event->key !== R_KEY_ENTER && $event->key !== R_KEY_KP_ENTER)) {
+                return R_FALSE;
+            }
+            Rdialog_close($widget, $default);
+
+            return R_TRUE;
+        }, null);
+
+        $self = WeakReference::create($this);
+        $cancel = $alert->cancel;
+        $this->alert = $box;
+        Rdialog_open($window, $box, static function (int $content, int $result) use ($self, $suppression, $cancel): void {
+            $window = $self->get();
+            if (is_null($window) || $window->alert !== $content) {
+                return;
+            }
+            $window->alert = 0;
+            // The content is still whole here: Raven deletes it after this callback.
+            $window->alertAnswered(
+                $result === 0 ? $cancel : $result - 1,
+                $suppression !== 0 && Rcheckbox_is_checked($suppression) === R_TRUE,
+            );
+        }, null);
+    }
+
+    /** Raven asks the OS to open it with the user's browser. */
+    protected function openUrl(string $url): void
+    {
+        Ropen_url($url);
+    }
+
+    /** The dialog closes before the window goes; its callback then finds it gone. */
+    protected function closeAlert(): void
+    {
+        $box = $this->alert;
+        $this->alert = 0;
+        if ($box !== 0 && Rwidget_is_valid($box) === R_TRUE) {
+            Rdialog_close($box, 0);
+        }
     }
 
     protected function live(): int
