@@ -11,6 +11,7 @@ use Surface\Contracts\Toolkits\UI\IconPosition;
 use Surface\Contracts\Toolkits\UI\Insets;
 use Surface\Contracts\Toolkits\Styling\FontSpec;
 use Surface\Contracts\Toolkits\Styling\TextAlignment;
+use Jovian\Toolkits\Raven\UI\Support\RavenIcon;
 use Jovian\Toolkits\Raven\UI\Concerns\RavenText;
 use Jovian\Toolkits\Raven\UI\Concerns\RavenNative;
 use Jovian\Toolkits\Raven\UI\Concerns\RavenButtonSurface;
@@ -70,9 +71,6 @@ class RavenButton extends TKButton
 
     /** A texture read from the icon file, this button's own; R_INVALID_ID for none. */
     private int $icon_texture = R_INVALID_ID;
-
-    /** @var array<string, true>|null the names of Raven's icons, once */
-    private static ?array $symbols = null;
 
     /**
      * The callback holds the primitive weakly: a strong capture would be a cycle through
@@ -192,12 +190,8 @@ class RavenButton extends TKButton
      */
     protected function applyIcon(?string $file, ?string $symbol): void
     {
-        $owned = R_INVALID_ID;
-        $texture = match (true) {
-            ! is_null($file) => $owned = self::readIcon($file),
-            ! is_null($symbol) && self::ravenHasIcon($symbol) => Ricon_get($symbol),
-            default => R_INVALID_ID,
-        };
+        [$texture, $owns] = RavenIcon::texture($file, $symbol);
+        $owned = $owns ? $texture : R_INVALID_ID;
 
         $texture === R_INVALID_ID ? $this->dropIconBox() : $this->showIcon($texture);
         $this->dropIconTexture();
@@ -383,30 +377,5 @@ class RavenButton extends TKButton
             Rtexture_destroy($this->icon_texture);
         }
         $this->icon_texture = R_INVALID_ID;
-    }
-
-    /**
-     * @throws ToolkitException When Raven reads no picture in it.
-     */
-    private static function readIcon(string $file): int
-    {
-        $texture = Rtexture_create_from_file($file);
-
-        return Rtexture_is_valid($texture) === R_TRUE ? $texture : throw new ToolkitException("'{$file}' is not an image Raven reads.");
-    }
-
-    /**
-     * Whether Raven ships an icon of that name ("search", or "raven:search").
-     */
-    private static function ravenHasIcon(string $name): bool
-    {
-        if (is_null(self::$symbols)) {
-            self::$symbols = [];
-            for ($index = 0, $count = Ricon_get_count(); $index < $count; $index++) {
-                self::$symbols[(string) Ricon_get_name($index)] = true;
-            }
-        }
-
-        return isset(self::$symbols[str_starts_with($name, 'raven:') ? substr($name, 6) : $name]);
     }
 }

@@ -13,6 +13,7 @@ use Surface\Contracts\Toolkits\UI\Cursor;
 use Surface\Contracts\Toolkits\UI\Corners;
 use Surface\Contracts\Toolkits\UI\Insets;
 use Surface\Contracts\Toolkits\UI\TKTransition;
+use Jovian\Toolkits\Raven\RavenWindow;
 
 /**
  * What every Raven primitive does the same way with its widgets.
@@ -56,7 +57,8 @@ use Surface\Contracts\Toolkits\UI\TKTransition;
  * it, outside its background. Raven's boxes, grid, scroll box, tab view, splitter and the
  * window's box read it; a canvas (the fixed) places by frame and reads none, so a margin there
  * is not shown. A border is the outline of the native's border (Rborder_set_outline), drawn
- * on its edge. The pointer and the tooltip are the native's: Raven looks for them from the
+ * on its edge. A view that reports its size is registered with its window, which asks it
+ * after every pump (Raven reports no widget resize). The pointer and the tooltip are the native's: Raven looks for them from the
  * widget under the pointer up through its parents, so what is inside a container that has
  * none of its own shows the container's.
  */
@@ -133,12 +135,38 @@ trait RavenNative
     protected function releaseNative(): void
     {
         $this->stopHearingClicks();
+        $this->applyWatchSize(false);
         if ($this->native !== 0 && Rwidget_is_valid($this->native) === R_TRUE) {
             Rwidget_destroy($this->native);
         }
 
         $this->native = 0;
         $this->control = 0;
+    }
+
+    /**
+     * Raven reports no widget resize: the primitive is registered with its window, whose
+     * settle() asks it after every pump (checkSize()), or taken off again.
+     */
+    protected function applyWatchSize(bool $on): void
+    {
+        $window = $this->window();
+        if ($window instanceof RavenWindow) {
+            $on ? $window->watchSize($this) : $window->unwatchSize($this);
+        }
+    }
+
+    /**
+     * The window asks after a pump whether the size changed: sizeChanged() posts it when it
+     * did.
+     *
+     * @internal RavenWindow
+     */
+    public function checkSize(): void
+    {
+        if ($this->native !== 0) {
+            $this->sizeChanged();
+        }
     }
 
     /**

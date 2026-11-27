@@ -4,13 +4,17 @@ namespace Jovian\Toolkits\Raven;
 
 use Closure;
 use REvent;
+use RFileDialogDesc;
 use RuntimeException;
 use Surface\Contracts\Toolkits\Mail\Windows\WindowFocused;
 use Surface\Contracts\Toolkits\Mail\Windows\WindowScaleChanged;
 use Surface\Toolkits\ToolkitWindow;
 use Surface\Contracts\Toolkits\Dialogs\Alert;
+use Surface\Contracts\Toolkits\Dialogs\SaveRequest;
 use Surface\Contracts\Toolkits\UI\TKColumn as ColumnContract;
+use WeakMap;
 use WeakReference;
+use Jovian\Toolkits\Raven\UI\RavenLabel;
 
 /**
  * A Raven window (Rwindow_create, hidden until present()). Its content widget is a vertical box
@@ -50,12 +54,21 @@ class RavenWindow extends ToolkitWindow
     /** The content of the alert open on the window, until it is answered; 0 when none. */
     protected int $alert = 0;
 
+    /** Whether a save panel is asked for and not shown yet: it opens in the next frame. */
+    private bool $save_pending = false;
+
     /**
      * Who sees this window's input before its widgets, by key: Raven has one hook per window.
      *
      * @var array<string, Closure(REvent): bool>
      */
     private array $input_watchers = [];
+
+    /** @var WeakMap<RavenLabel, true>|null the labels that truncate: cut again after each pump */
+    private ?WeakMap $truncating = null;
+
+    /** @var WeakMap<object, true>|null the views that report their size: asked after each pump */
+    private ?WeakMap $sized = null;
 
     public function __construct(
         string $name,
@@ -174,6 +187,16 @@ class RavenWindow extends ToolkitWindow
             return;
         }
 
+        // Raven reports no resize of a widget: a truncating label is cut again to its width.
+        foreach ($this->truncating ?? [] as $label => $_) {
+            $label->recut();
+        }
+
+        // Nor of a view: each that watches its size says whether it changed.
+        foreach ($this->sized ?? [] as $view => $_) {
+            $view->checkSize();
+        }
+
         $active = $this->isActive();
         if ($active && ! $this->active) {
             // Raven shows the active window's bar itself; this tells topside whose bar answers.
@@ -186,6 +209,44 @@ class RavenWindow extends ToolkitWindow
         $this->active = $active;
 
         $this->scaleChanged();
+    }
+
+    /**
+     * Cut $label again to its width after each pump, while it truncates.
+     *
+     * @internal RavenLabel
+     */
+    public function watchWidth(RavenLabel $label): void
+    {
+        $this->truncating ??= new WeakMap();
+        $this->truncating[$label] = true;
+    }
+
+    /**
+     * @internal RavenLabel
+     */
+    public function unwatchWidth(RavenLabel $label): void
+    {
+        unset($this->truncating[$label]);
+    }
+
+    /**
+     * Ask $view after each pump whether its size changed, while it watches its size.
+     *
+     * @internal RavenNative
+     */
+    public function watchSize(object $view): void
+    {
+        $this->sized ??= new WeakMap();
+        $this->sized[$view] = true;
+    }
+
+    /**
+     * @internal RavenNative
+     */
+    public function unwatchSize(object $view): void
+    {
+        unset($this->sized[$view]);
     }
 
     /** WindowScaleChanged when the scale differs from the last posted. */
@@ -431,6 +492,36 @@ class RavenWindow extends ToolkitWindow
                 $suppression !== 0 && Rcheckbox_is_checked($suppression) === R_TRUE,
             );
         }, null);
+    }
+
+    /**
+     * Raven's own save panel (Rfile_dialog_save): the system's where Raven has one, else its
+     * file browser in a dialog over the window. The call waits for the answer in a loop of its
+     * own, so it runs from the next frame (Rtask_post) and this returns at once. The title,
+     * folder and suggested name are the panel's; it asks itself before replacing a file. The
+     * path chosen, or null for a cancel, is the answer.
+     */
+    protected function showSave(SaveRequest $request): void
+    {
+        $desc = new RFileDialogDesc(parent: $this->live(), title: $request->title, directory: $request->directory, file_name: $request->name);
+
+        $self = WeakReference::create($this);
+        $this->save_pending = true;
+        Rtask_post(static function () use ($self, $desc): void {
+            $window = $self->get();
+            if (is_null($window) || ! $window->save_pending) {
+                return;
+            }
+            $window->save_pending = false;
+            $path = Rfile_dialog_save($desc);
+            $window->saveAnswered($path);
+        }, null);
+    }
+
+    /** A panel not shown yet is not shown; one that is open goes with the window. */
+    protected function closeSave(): void
+    {
+        $this->save_pending = false;
     }
 
     /** Raven asks the OS to open it with the user's browser. */

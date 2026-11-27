@@ -1,7 +1,15 @@
 # Log
 
+## 2026-11-27
+
+* **Update**: [UI primitives](/architecture/ui-primitives.md): `RavenVideo` for topside's `TKVideo` (topside adb4852), a `<video>` element in Raven's system web view, streams only (a page reads files of its own folder alone); no new bindings. `tests/Windowless/VideoTest.php` with fixtures served by PHP's built-in server with byte ranges; headless 47 passed and 5 skipped (no system web view under the null renderer), the player cases 6 passed with the `vulkan` backend, NTS and ZTS.
+* **Update**: [UI primitives](/architecture/ui-primitives.md): a dropdown's option icons and icon-only face (topside 1a701c6): with an icon, or icon-only, a Raven button with the selected icon and the chevron, opening a standalone Raven menu of the options with their icons. The file-or-Raven icon moves to `UI/Support/RavenIcon`, shared with the button. Windowless 45 on NTS and ZTS.
+
 ## 2026-11-26
 
+* **New**: [UI primitives](/architecture/ui-primitives.md), [Window](/architecture/window.md): topside 9ca0235. A view reports its size (`RavenWindow::settle()` asks each registered view after a pump); a save panel (`Rfile_dialog_save`, run from the next frame with `Rtask_post` because it waits); `RavenFlow` on `TKFlow`, in the primitive map: `R_WIDGET_WRAP_BOX` in a border, `Rpanel_set_spacing`, `Rborder_set_padding`. No new bindings. `ViewResizedTest`, `SaveTest`, `FlowTest` (18 cases); Windowless 42 pass on 8.4 NTS and ZTS.
+* **Update**: [UI primitives](/architecture/ui-primitives.md): a label truncates (topside dd88b89): the adapter cuts the text to the label's width with "…" (`Rfont_measure_text`), caps its desired width at 0 in a FILL slot, and the window cuts it again after each pump when its width changed. `tests/Windowless/LabelTruncateTest.php` (4 cases); Windowless 24 pass on 8.4 NTS and ZTS.
+* **Update**: [UI primitives](/architecture/ui-primitives.md): margin in a fixed. The canvas reads no slot padding, so `RavenFixed` moves the slot position in by the left and top margin and covers past the right and bottom margin; a margin changed live re-frames the child. `tests/Windowless/FixedMarginTest.php`; Windowless 20 pass on 8.4 NTS and ZTS.
 * **Update**: [Menu bar](/architecture/menu-bar.md): `StandardKind::PASTE_AND_MATCH_STYLE` sends Paste's chord. [Session](/architecture/session.md): `applyColorScheme()` picks the dark or light member of the theme's family. [UI primitives](/architecture/ui-primitives.md): an empty-label button with an icon holds the icon alone; frameless buttons are solid material, so no hover glass.
 * **Update**: [UI primitives](/architecture/ui-primitives.md): `RavenScrollView` reports scrolling: Raven has no scroll callback, so while watched a 30 Hz timer compares `Rscroll_box_get_offset` (as the item views do); the position is the box's offset and rect against what its child asks to be. 6 real-window checks on 8.4 NTS and ZTS.
 * **Update**: [UI primitives](/architecture/ui-primitives.md), [Window](/architecture/window.md): `ButtonStyle::HELP` drawn as DEFAULT (Raven has no help button); `openUrl()` through `Ropen_url`. Checked in the real app on 8.4 NTS and ZTS.
